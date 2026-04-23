@@ -12,13 +12,15 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { signOut } from 'firebase/auth';
 import { auth, db } from '../../firebaseConfig';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { uploadImageToCloudinary } from '../utils/cloudinaryHelper';
 import { validatePhilippineMobileNumber, getPhilippineMobileErrorMessage } from '../utils/contactValidation';
+import {
+  leaveCurrentWorkspace,
+} from '../utils/workspaceInvite';
 
 export default function ProfileScreen() {
   const [userData, setUserData] = useState(null);
@@ -28,18 +30,22 @@ export default function ProfileScreen() {
   const [imageUri, setImageUri] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [contactError, setContactError] = useState('');
+  const [leavingWorkspace, setLeavingWorkspace] = useState(false);
 
-  // Form state for edit mode
   const [formData, setFormData] = useState({
     name: '',
     contactNumber: '',
     organizationName: '',
     role: '',
+    workspaceRoleTitle: '',
     address: '',
     description: '',
   });
 
   const userEmail = auth.currentUser?.email || 'No email available';
+  const isAdmin = (userData?.role || '').toLowerCase() === 'admin';
+  const organizationId = userData?.organizationId || auth.currentUser?.uid || '';
+  const canLeaveWorkspace = !isAdmin && organizationId && organizationId !== auth.currentUser?.uid;
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -47,6 +53,7 @@ export default function ProfileScreen() {
         setLoading(false);
         return;
       }
+
       try {
         const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
         if (userDoc.exists()) {
@@ -57,6 +64,7 @@ export default function ProfileScreen() {
             contactNumber: data.contactNumber || '',
             organizationName: data.organizationName || '',
             role: data.role || '',
+            workspaceRoleTitle: data.workspaceRoleTitle || '',
             address: data.address || '',
             description: data.description || '',
           });
@@ -67,12 +75,12 @@ export default function ProfileScreen() {
         setLoading(false);
       }
     };
+
     fetchUserData();
   }, []);
 
   const pickImage = async () => {
-    const permissionResult =
-      await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (!permissionResult.granted) {
       Alert.alert('Permission needed', 'Please allow access to your photos.');
@@ -91,7 +99,7 @@ export default function ProfileScreen() {
   };
 
   const uploadLogo = async () => {
-    if (!imageUri) return;
+    if (!imageUri || !auth.currentUser) return;
 
     try {
       setUploading(true);
@@ -102,7 +110,7 @@ export default function ProfileScreen() {
         updatedAt: serverTimestamp(),
       });
 
-      setUserData(prev => ({ ...prev, organizationLogoUrl: uploadedImageUrl }));
+      setUserData((prev) => ({ ...prev, organizationLogoUrl: uploadedImageUrl }));
       setImageUri(null);
       Alert.alert('Success', 'Logo uploaded successfully.');
     } catch (error) {
@@ -122,7 +130,6 @@ export default function ProfileScreen() {
 
     const contactNumberValue = formData.contactNumber.trim();
 
-    // Validate contact number if provided
     if (contactNumberValue && !validatePhilippineMobileNumber(contactNumberValue)) {
       const errorMsg = getPhilippineMobileErrorMessage();
       setContactError(errorMsg);
@@ -135,11 +142,15 @@ export default function ProfileScreen() {
       await updateDoc(doc(db, 'users', auth.currentUser.uid), {
         name: formData.name.trim(),
         contactNumber: contactNumberValue,
-        organizationName: formData.organizationName.trim(),
-        role: formData.role.trim(),
         address: formData.address.trim(),
         description: formData.description.trim(),
         updatedAt: serverTimestamp(),
+        ...(isAdmin
+          ? {
+              organizationName: formData.organizationName.trim(),
+              workspaceRoleTitle: formData.workspaceRoleTitle.trim(),
+            }
+          : {}),
       });
 
       setUserData((prev) => ({
@@ -147,6 +158,7 @@ export default function ProfileScreen() {
         ...formData,
         contactNumber: contactNumberValue,
       }));
+
       setIsEditMode(false);
       setContactError('');
       Alert.alert('Success', 'Profile updated successfully.');
@@ -165,10 +177,12 @@ export default function ProfileScreen() {
         contactNumber: userData.contactNumber || '',
         organizationName: userData.organizationName || '',
         role: userData.role || '',
+        workspaceRoleTitle: userData.workspaceRoleTitle || '',
         address: userData.address || '',
         description: userData.description || '',
       });
     }
+
     setIsEditMode(false);
     setImageUri(null);
     setContactError('');
@@ -183,503 +197,418 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleLeaveWorkspace = async () => {
+    if (!auth.currentUser || !canLeaveWorkspace) {
+      return;
+    }
+
+    Alert.alert(
+      'Leave Workspace',
+      'Are you sure you want to leave this workspace? You will return to your own workspace.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Leave',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLeavingWorkspace(true);
+              await leaveCurrentWorkspace(auth.currentUser.uid);
+
+              const refreshedUserDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+              if (refreshedUserDoc.exists()) {
+                const refreshedData = refreshedUserDoc.data();
+                setUserData(refreshedData);
+                setFormData((prev) => ({
+                  ...prev,
+                  organizationName: refreshedData.organizationName || prev.organizationName,
+                  role: refreshedData.role || prev.role,
+                  workspaceRoleTitle: refreshedData.workspaceRoleTitle || prev.workspaceRoleTitle,
+                }));
+              }
+
+              Alert.alert('Success', 'You have left the workspace.');
+            } catch (error) {
+              console.log('Error leaving workspace:', error);
+              Alert.alert('Error', error.message);
+            } finally {
+              setLeavingWorkspace(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   if (loading) {
     return (
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
-        <LinearGradient
-          colors={['#ffffff', '#f8f9ff', '#f0f0ff']}
-          style={styles.container}
-        >
-          <View style={styles.centerContainer}>
-            <ActivityIndicator size="large" color="#7c3aed" />
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#2563eb" />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (isEditMode) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <Text style={styles.title}>Edit Profile</Text>
+          <Text style={styles.subtitle}>Update your account details.</Text>
+
+          <View style={styles.card}>
+            <Text style={styles.label}>Full Name *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter full name"
+              placeholderTextColor="#94a3b8"
+              value={formData.name}
+              onChangeText={(text) => setFormData({ ...formData, name: text })}
+              editable={!saving}
+            />
+
+            <Text style={styles.label}>Email</Text>
+            <Text style={styles.readOnly}>{userEmail}</Text>
+
+            <Text style={styles.label}>Contact Number</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="09XXXXXXXXX"
+              placeholderTextColor="#94a3b8"
+              value={formData.contactNumber}
+              onChangeText={(text) => {
+                setFormData({ ...formData, contactNumber: text });
+                if (contactError) setContactError('');
+              }}
+              editable={!saving}
+              keyboardType="phone-pad"
+            />
+            {contactError ? <Text style={styles.errorText}>{contactError}</Text> : null}
+
+            <Text style={styles.label}>Address</Text>
+            <TextInput
+              style={[styles.input, styles.multiline]}
+              placeholder="Enter address"
+              placeholderTextColor="#94a3b8"
+              value={formData.address}
+              onChangeText={(text) => setFormData({ ...formData, address: text })}
+              editable={!saving}
+              multiline
+            />
+
+            <Text style={styles.label}>Organization</Text>
+            <TextInput
+              style={isAdmin ? styles.input : styles.readOnly}
+              placeholder="Organization name"
+              placeholderTextColor="#94a3b8"
+              value={formData.organizationName}
+              onChangeText={(text) => setFormData({ ...formData, organizationName: text })}
+              editable={isAdmin && !saving}
+            />
+
+            {isAdmin ? (
+              <>
+                <Text style={styles.label}>Workspace Role Title</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ex. UI/UX Designer"
+                  placeholderTextColor="#94a3b8"
+                  value={formData.workspaceRoleTitle}
+                  onChangeText={(text) => setFormData({ ...formData, workspaceRoleTitle: text })}
+                  editable={!saving}
+                />
+              </>
+            ) : (
+              <>
+                <Text style={styles.label}>Workspace Role</Text>
+                <Text style={styles.readOnly}>{userData?.workspaceRoleTitle || userData?.role || 'Member'}</Text>
+              </>
+            )}
+
+            <View style={styles.rowButtons}>
+              <TouchableOpacity style={[styles.primaryButton, styles.flexButton]} onPress={handleSaveProfile} disabled={saving}>
+                <Text style={styles.primaryButtonText}>{saving ? 'Saving...' : 'Save'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.secondaryButton, styles.flexButton]} onPress={handleCancel}>
+                <Text style={styles.secondaryButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </LinearGradient>
+        </ScrollView>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={{ flex: 1 }}>
+    <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
-      <LinearGradient
-        colors={['#ffffff', '#f8f9ff', '#f0f0ff']}
-        style={styles.container}
-      >
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-      {/* Profile Header Section */}
-      <View style={styles.headerSection}>
-        <View style={styles.headerCircleLarge} />
-        <View style={styles.headerCircleSmall} />
-        {userData && userData.organizationLogoUrl ? (
-          <Image source={{ uri: userData.organizationLogoUrl }} style={styles.logo} />
-        ) : (
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {(userData?.name || userEmail).charAt(0).toUpperCase()}
-            </Text>
-          </View>
-        )}
+      <ScrollView contentContainerStyle={styles.content}>
+        <Text style={styles.title}>Profile</Text>
+        <Text style={styles.subtitle}>Your account summary.</Text>
 
-        <Text style={styles.organizationName}>
-          {userData?.organizationName || 'Organization Profile'}
-        </Text>
-        <Text style={styles.role}>{userData?.role || 'Member'}</Text>
-
-        {isEditMode ? (
-          <View style={styles.buttonGroup}>
-            <TouchableOpacity
-              style={[styles.primaryButton, styles.saveButton]}
-              onPress={handleSaveProfile}
-              disabled={saving}
-            >
-              <Text style={styles.buttonText}>
-                {saving ? 'Saving...' : 'Save Changes'}
-              </Text>
+        <View style={styles.card}>
+          <View style={styles.profileTop}>
+            <TouchableOpacity onPress={pickImage} activeOpacity={0.85}>
+              {userData?.organizationLogoUrl ? (
+                <Image source={{ uri: userData.organizationLogoUrl }} style={styles.avatar} />
+              ) : (
+                <View style={styles.avatarFallback}>
+                  <Text style={styles.avatarFallbackText}>{(userData?.name || userEmail.charAt(0)).charAt(0).toUpperCase()}</Text>
+                </View>
+              )}
             </TouchableOpacity>
-            <TouchableOpacity style={styles.secondaryButton} onPress={handleCancel}>
-              <Text style={styles.secondaryButtonText}>Cancel</Text>
-            </TouchableOpacity>
+            <View style={styles.profileMeta}>
+              <Text style={styles.name}>{userData?.name || 'Your Name'}</Text>
+              <Text style={styles.role}>{userData?.role || 'Member'}</Text>
+              <Text style={styles.memberEmail}>{userData?.workspaceRoleTitle || 'No workspace role title yet'}</Text>
+            </View>
           </View>
-        ) : (
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => setIsEditMode(true)}
-          >
-            <Text style={styles.buttonText}>Edit Profile</Text>
-          </TouchableOpacity>
-        )}
-      </View>
 
-      {/* Logo Upload Section */}
-      {isEditMode && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Organization Logo</Text>
-          <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
-            <Text style={styles.uploadText}>
-              {userData?.organizationLogoUrl ? 'Change Logo' : 'Upload Logo'}
-            </Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Email</Text>
+            <Text style={styles.infoValue}>{userEmail}</Text>
+          </View>
+
+          {userData?.contactNumber ? (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Phone</Text>
+              <Text style={styles.infoValue}>{userData.contactNumber}</Text>
+            </View>
+          ) : null}
+
+          {userData?.address ? (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Address</Text>
+              <Text style={styles.infoValue}>{userData.address}</Text>
+            </View>
+          ) : null}
+
+          {imageUri ? <Image source={{ uri: imageUri }} style={styles.logoPreview} /> : null}
+
+          {imageUri ? (
+            <TouchableOpacity style={[styles.primaryButton, uploading && styles.buttonDisabled]} onPress={uploadLogo} disabled={uploading}>
+              <Text style={styles.primaryButtonText}>{uploading ? 'Uploading...' : 'Upload Logo'}</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          <TouchableOpacity style={styles.primaryButton} onPress={() => setIsEditMode(true)}>
+            <Text style={styles.primaryButtonText}>Edit Profile</Text>
           </TouchableOpacity>
 
-          {imageUri && <Image source={{ uri: imageUri }} style={styles.previewImage} />}
-
-          {imageUri && (
+          {canLeaveWorkspace ? (
             <TouchableOpacity
-              style={[styles.confirmButton, uploading && styles.buttonDisabled]}
-              onPress={uploadLogo}
-              disabled={uploading}
+              style={[styles.leaveWorkspaceButton, leavingWorkspace && styles.buttonDisabled]}
+              onPress={handleLeaveWorkspace}
+              disabled={leavingWorkspace}
             >
-              <Text style={styles.confirmText}>
-                {uploading ? 'Uploading...' : 'Confirm Upload'}
-              </Text>
+              <Text style={styles.leaveWorkspaceText}>{leavingWorkspace ? 'Leaving...' : 'Leave Workspace'}</Text>
             </TouchableOpacity>
-          )}
+          ) : null}
+
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
         </View>
-      )}
-
-      {/* Account Information Section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Account Information</Text>
-        <View style={styles.infoField}>
-          <Text style={styles.fieldLabel}>Email</Text>
-          {isEditMode ? (
-            <Text style={styles.readOnlyValue}>{userEmail}</Text>
-          ) : (
-            <Text style={styles.fieldValue}>{userEmail}</Text>
-          )}
-        </View>
-      </View>
-
-      {/* Personal Information Section */}
-      {isEditMode && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Personal Information</Text>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.fieldLabel}>Full Name *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your full name"
-              value={formData.name}
-              onChangeText={(text) =>
-                setFormData({ ...formData, name: text })
-              }
-              editable={!saving}
-            />
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.fieldLabel}>Contact Number</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="09XXXXXXXXX or +639XXXXXXXXX"
-              value={formData.contactNumber}
-              onChangeText={(text) => {
-                setFormData({ ...formData, contactNumber: text });
-                if (contactError) {
-                  setContactError('');
-                }
-              }}
-              editable={!saving}
-              keyboardType="phone-pad"
-            />
-            {contactError ? (
-              <Text style={styles.errorText}>{contactError}</Text>
-            ) : null}
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.fieldLabel}>Role / Position</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g., Manager, Developer, Admin"
-              value={formData.role}
-              onChangeText={(text) =>
-                setFormData({ ...formData, role: text })
-              }
-              editable={!saving}
-            />
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.fieldLabel}>Address</Text>
-            <TextInput
-              style={[styles.input, styles.multiline]}
-              placeholder="Enter address"
-              value={formData.address}
-              onChangeText={(text) =>
-                setFormData({ ...formData, address: text })
-              }
-              editable={!saving}
-              multiline
-            />
-          </View>
-        </View>
-      )}
-
-      {/* Organization Details Section */}
-      {isEditMode ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Organization Details</Text>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.fieldLabel}>Organization / Team Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter organization name"
-              value={formData.organizationName}
-              onChangeText={(text) =>
-                setFormData({ ...formData, organizationName: text })
-              }
-              editable={!saving}
-            />
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.fieldLabel}>Description</Text>
-            <TextInput
-              style={[styles.input, styles.multiline]}
-              placeholder="Enter organization description"
-              value={formData.description}
-              onChangeText={(text) =>
-                setFormData({ ...formData, description: text })
-              }
-              editable={!saving}
-              multiline
-            />
-          </View>
-        </View>
-      ) : (
-        userData && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Contact Information</Text>
-
-            <View style={styles.infoField}>
-              <Text style={styles.fieldLabel}>Name</Text>
-              <Text style={styles.fieldValue}>{userData.name || 'Not set'}</Text>
-            </View>
-
-            <View style={styles.infoField}>
-              <Text style={styles.fieldLabel}>Contact Number</Text>
-              <Text style={styles.fieldValue}>
-                {userData.contactNumber || 'Not set'}
-              </Text>
-            </View>
-
-            <View style={styles.infoField}>
-              <Text style={styles.fieldLabel}>Address</Text>
-              <Text style={styles.fieldValue}>
-                {userData.address || 'Not set'}
-              </Text>
-            </View>
-          </View>
-        )
-      )}
-
-      {!isEditMode && userData && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Organization Details</Text>
-
-          <View style={styles.infoField}>
-            <Text style={styles.fieldLabel}>Organization Name</Text>
-            <Text style={styles.fieldValue}>
-              {userData.organizationName || 'Not set'}
-            </Text>
-          </View>
-
-          <View style={styles.infoField}>
-            <Text style={styles.fieldLabel}>Description</Text>
-            <Text style={styles.fieldValue}>
-              {userData.description || 'Not set'}
-            </Text>
-          </View>
-        </View>
-      )}
-
-      {/* Logout Button */}
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <Text style={styles.logoutText}>Logout</Text>
-      </TouchableOpacity>
-
-      <View style={styles.spacer} />
-    </ScrollView>
-    </LinearGradient>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
+    backgroundColor: '#f4f6f8',
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingVertical: 20,
-    paddingHorizontal: 16,
-  },
-  centerContainer: {
+  center: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-
-  /* Header Section */
-  headerSection: {
-    backgroundColor: '#f5f3ff',
-    borderRadius: 24,
-    padding: 28,
+  content: {
+    padding: 16,
+    paddingBottom: 120,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  subtitle: {
+    marginTop: 4,
+    marginBottom: 14,
+    color: '#64748b',
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 14,
+  },
+  profileTop: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
-    elevation: 4,
-    shadowColor: '#7c3aed',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 24,
-    overflow: 'hidden',
-  },
-  logo: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    marginBottom: 16,
-  },
-  headerCircleLarge: {
-    position: 'absolute',
-    top: -22,
-    right: -20,
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: 'rgba(124, 58, 237, 0.18)',
-  },
-  headerCircleSmall: {
-    position: 'absolute',
-    top: 28,
-    left: -18,
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: 'rgba(236, 72, 153, 0.18)',
+    marginBottom: 14,
   },
   avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#7c3aed',
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+  },
+  avatarFallback: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#e2e8f0',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
   },
-  avatarText: {
-    color: '#fff',
-    fontSize: 40,
-    fontWeight: 'bold',
-  },
-  organizationName: {
+  avatarFallbackText: {
     fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: 4,
-    textAlign: 'center',
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  profileMeta: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  name: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#0f172a',
   },
   role: {
-    fontSize: 14,
-    color: '#7c3aed',
-    marginBottom: 20,
-    textAlign: 'center',
+    marginTop: 2,
+    color: '#64748b',
   },
-  buttonGroup: {
-    width: '100%',
-    gap: 12,
+  infoRow: {
+    marginBottom: 10,
   },
-  primaryButton: {
-    backgroundColor: '#7c3aed',
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-  },
-  saveButton: {
-    backgroundColor: '#059669',
-  },
-  secondaryButton: {
-    backgroundColor: '#e5e7eb',
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  secondaryButtonText: {
-    color: '#374151',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-
-  /* Section Styles */
-  section: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 24,
-    marginBottom: 20,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#7c3aed',
-    marginBottom: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-
-  /* Info Fields (View Mode) */
-  infoField: {
-    marginBottom: 16,
-  },
-  fieldLabel: {
+  infoLabel: {
     fontSize: 12,
-    color: '#6b7280',
-    fontWeight: '500',
-    marginBottom: 6,
-    textTransform: 'uppercase',
+    color: '#64748b',
+    marginBottom: 2,
   },
-  fieldValue: {
-    fontSize: 16,
-    color: '#111827',
-    fontWeight: '500',
-  },
-  readOnlyValue: {
+  infoValue: {
+    color: '#0f172a',
     fontSize: 14,
-    color: '#6b7280',
-    fontStyle: 'italic',
+    fontWeight: '500',
+  },
+  label: {
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 6,
+  },
+  input: {
+    height: 48,
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    color: '#0f172a',
+  },
+  readOnly: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    marginBottom: 10,
+    color: '#64748b',
+  },
+  multiline: {
+    height: 96,
+    textAlignVertical: 'top',
+    paddingTop: 10,
   },
   errorText: {
     color: '#dc2626',
+    marginTop: -4,
+    marginBottom: 8,
     fontSize: 12,
-    marginTop: 6,
   },
-
-  /* Form Fields (Edit Mode) */
-  formGroup: {
-    marginBottom: 16,
+  rowButtons: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: '#d1d5db',
+  flexButton: {
+    flex: 1,
+  },
+  primaryButton: {
+    height: 46,
     borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 14,
-    color: '#111827',
-    backgroundColor: '#f9fafb',
-  },
-  multiline: {
-    height: 100,
-    textAlignVertical: 'top',
-    paddingVertical: 12,
-  },
-
-  /* Logo Upload */
-  uploadButton: {
-    backgroundColor: '#7c3aed',
-    paddingVertical: 12,
-    borderRadius: 10,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    marginTop: 10,
   },
-  uploadText: {
+  primaryButtonText: {
     color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
-  previewImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    alignSelf: 'center',
-    marginBottom: 12,
-  },
-  confirmButton: {
-    backgroundColor: '#7c3aed',
-    paddingVertical: 12,
+  secondaryButton: {
+    height: 44,
     borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    backgroundColor: '#f8fafc',
+    justifyContent: 'center',
     alignItems: 'center',
+    marginTop: 10,
+  },
+  secondaryButtonText: {
+    color: '#0f172a',
+    fontWeight: '600',
+  },
+  memberEmail: {
+    color: '#64748b',
+    fontSize: 12,
+    marginTop: 2,
+    flexShrink: 1,
+  },
+  logoPreview: {
+    width: '100%',
+    height: 140,
+    borderRadius: 10,
+    marginTop: 10,
   },
   buttonDisabled: {
     opacity: 0.7,
   },
-  confirmText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-
-  /* Logout Button */
   logoutButton: {
-    backgroundColor: '#dc2626',
-    paddingVertical: 18,
-    borderRadius: 14,
+    height: 46,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    backgroundColor: '#fef2f2',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 24,
+    marginTop: 10,
+  },
+  leaveWorkspaceButton: {
+    height: 46,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#f59e0b',
+    backgroundColor: '#fff7ed',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  leaveWorkspaceText: {
+    color: '#b45309',
+    fontWeight: '700',
   },
   logoutText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-
-  /* Spacer */
-  spacer: {
-    height: 20,
+    color: '#dc2626',
+    fontWeight: '700',
   },
 });

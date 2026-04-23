@@ -7,13 +7,13 @@ import {
   Alert,
   StyleSheet,
   Platform,
+  ScrollView,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, serverTimestamp, getDoc, doc } from 'firebase/firestore';
 import { auth, db } from '../../firebaseConfig';
 import { formatDateToString } from '../utils/dateHelper';
 
@@ -49,6 +49,10 @@ export default function AddTaskScreen({ route, navigation }) {
     }
 
     try {
+      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+      const userData = userDoc.exists() ? userDoc.data() : null;
+      const organizationId = board.organizationId || userData?.organizationId || auth.currentUser.uid;
+
       await addDoc(collection(db, 'tasks'), {
         title: title.trim(),
         description: description.trim(),
@@ -58,6 +62,7 @@ export default function AddTaskScreen({ route, navigation }) {
         boardTitle: board.title,
         userId: auth.currentUser.uid,
         createdBy: auth.currentUser.uid,
+        organizationId,
         createdAt: serverTimestamp(),
       });
 
@@ -70,211 +75,164 @@ export default function AddTaskScreen({ route, navigation }) {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1 }}>
+    <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
-      <LinearGradient
-        colors={['#ffffff', '#f8f9ff', '#f0f0ff']}
-        style={styles.container}
-      >
-        <View style={styles.content}>
-          <View style={styles.accentCircleTop} />
-          <View style={styles.accentCircleBottom} />
-          <Text style={styles.title}>Create New Task</Text>
-          <Text style={styles.subtitle}>Add a task to {board.title}</Text>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <Text style={styles.title}>Create Task</Text>
+        <Text style={styles.subtitle}>Board: {board.title}</Text>
 
-          <View style={styles.form}>
-            <TextInput
-              style={styles.input}
-              placeholder="Task Title"
-              placeholderTextColor="#9ca3af"
-              value={title}
-              onChangeText={setTitle}
-            />
+        <View style={styles.card}>
+          <Text style={styles.label}>Task Title</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Task title"
+            placeholderTextColor="#94a3b8"
+            value={title}
+            onChangeText={setTitle}
+          />
 
-            <TextInput
-              style={[styles.input, styles.multiline]}
-              placeholder="Description (optional)"
-              placeholderTextColor="#9ca3af"
-              value={description}
-              onChangeText={setDescription}
-              multiline
-            />
+          <Text style={styles.label}>Description</Text>
+          <TextInput
+            style={[styles.input, styles.multiline]}
+            placeholder="Optional description"
+            placeholderTextColor="#94a3b8"
+            value={description}
+            onChangeText={setDescription}
+            multiline
+          />
 
-            <View style={styles.pickerContainer}>
-              <Picker selectedValue={status} onValueChange={(itemValue) => setStatus(itemValue)}>
-                <Picker.Item label="To Do" value="To Do" />
-                <Picker.Item label="In Progress" value="In Progress" />
-                <Picker.Item label="Done" value="Done" />
-              </Picker>
-            </View>
-
-            <TouchableOpacity
-              style={styles.dateButton}
-              onPress={() => setShowDatePicker(true)}
-            >
-              <Text style={styles.dateButtonLabel}>📅 Select Due Date</Text>
-              <Text style={styles.dateButtonValue}>{formatDateToString(dueDate)}</Text>
-            </TouchableOpacity>
-
-            {showDatePicker && (
-              <DateTimePicker
-                value={dueDate}
-                mode="date"
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={handleDateChange}
-              />
-            )}
-
-            {Platform.OS === 'ios' && showDatePicker && (
-              <TouchableOpacity
-                style={styles.datePickerConfirm}
-                onPress={() => setShowDatePicker(false)}
-              >
-                <Text style={styles.datePickerConfirmText}>Done</Text>
-              </TouchableOpacity>
-            )}
-
-            <TouchableOpacity style={styles.button} onPress={handleAddTask}>
-              <Text style={styles.buttonText}>✨ Create Task</Text>
-            </TouchableOpacity>
+          <Text style={styles.label}>Status</Text>
+          <View style={styles.pickerWrap}>
+            <Picker selectedValue={status} onValueChange={(value) => setStatus(value)}>
+              <Picker.Item label="To Do" value="To Do" />
+              <Picker.Item label="In Progress" value="In Progress" />
+              <Picker.Item label="Done" value="Done" />
+            </Picker>
           </View>
+
+          <TouchableOpacity style={styles.dateButton} onPress={() => setShowDatePicker(true)}>
+            <Text style={styles.dateButtonLabel}>Due date</Text>
+            <Text style={styles.dateButtonValue}>{formatDateToString(dueDate)}</Text>
+          </TouchableOpacity>
+
+          {showDatePicker ? (
+            <DateTimePicker
+              value={dueDate}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              onChange={handleDateChange}
+            />
+          ) : null}
+
+          {Platform.OS === 'ios' && showDatePicker ? (
+            <TouchableOpacity style={styles.doneButton} onPress={() => setShowDatePicker(false)}>
+              <Text style={styles.doneButtonText}>Done</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          <TouchableOpacity style={styles.createButton} onPress={handleAddTask}>
+            <Text style={styles.createButtonText}>Create Task</Text>
+          </TouchableOpacity>
         </View>
-      </LinearGradient>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
+    backgroundColor: '#f4f6f8',
   },
   content: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-    position: 'relative',
+    padding: 16,
+    paddingBottom: 24,
   },
   title: {
-    fontSize: 32,
-    fontWeight: 'bold',
+    fontSize: 28,
+    fontWeight: '800',
     color: '#0f172a',
-    textAlign: 'center',
-    marginBottom: 8,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#7c3aed',
-    textAlign: 'center',
-    marginBottom: 40,
+    marginTop: 4,
+    marginBottom: 14,
+    color: '#64748b',
   },
-  form: {
-    flex: 1,
+  card: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 14,
+  },
+  label: {
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 6,
   },
   input: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 25,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    marginBottom: 16,
-    fontSize: 16,
-    color: '#0f172a',
+    height: 48,
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
+    borderColor: '#dbe1ea',
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    color: '#0f172a',
+    paddingHorizontal: 12,
+    marginBottom: 10,
   },
   multiline: {
-    height: 100,
+    height: 96,
     textAlignVertical: 'top',
+    paddingTop: 10,
   },
-  pickerContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 25,
-    marginBottom: 16,
+  pickerWrap: {
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
+    borderColor: '#dbe1ea',
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    marginBottom: 10,
     overflow: 'hidden',
   },
   dateButton: {
-    backgroundColor: '#1e3a8a',
-    borderRadius: 25,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    marginBottom: 16,
-    alignItems: 'center',
-    shadowColor: '#1e3a8a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 6,
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
   },
   dateButtonLabel: {
     fontSize: 12,
-    color: '#6b7280',
+    color: '#64748b',
     marginBottom: 4,
   },
   dateButtonValue: {
-    fontSize: 16,
+    color: '#0f172a',
     fontWeight: '600',
-    color: '#111827',
   },
-  datePickerConfirm: {
-    backgroundColor: '#1e3a8a',
-    padding: 12,
-    borderRadius: 25,
-    marginBottom: 16,
-    shadowColor: '#1e3a8a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  datePickerConfirmText: {
-    color: '#fff',
-    textAlign: 'center',
-    fontWeight: 'bold',
-  },
-  button: {
-    backgroundColor: '#1e3a8a',
-    paddingVertical: 18,
-    borderRadius: 25,
+  doneButton: {
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 20,
-    shadowColor: '#1e3a8a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    marginBottom: 10,
   },
-  buttonText: {
+  doneButtonText: {
     color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
-  accentCircleTop: {
-    position: 'absolute',
-    top: -28,
-    right: -26,
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: 'rgba(124, 58, 237, 0.17)',
+  createButton: {
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  accentCircleBottom: {
-    position: 'absolute',
-    bottom: 14,
-    left: -18,
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: 'rgba(236, 72, 153, 0.18)',
+  createButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
   },
 });

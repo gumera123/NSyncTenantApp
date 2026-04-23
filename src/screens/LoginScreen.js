@@ -1,4 +1,3 @@
-// src/screens/LoginScreen.js
 import React, { useState } from 'react';
 import {
   View,
@@ -14,7 +13,7 @@ import {
   Platform,
   Keyboard,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { signInWithEmailAndPassword } from 'firebase/auth';
@@ -24,6 +23,10 @@ export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  const handleSocialLoginPress = (provider) => {
+    Alert.alert('Coming soon', `${provider} sign-in UI is added, but provider setup is not connected yet.`);
+  };
 
   const handleLogin = async () => {
     if (!email.trim()) {
@@ -43,7 +46,7 @@ export default function LoginScreen({ navigation }) {
 
     try {
       setLoading(true);
-      await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(auth, email.trim(), password);
     } catch (error) {
       Alert.alert('Login Failed', error.message);
     } finally {
@@ -52,129 +55,178 @@ export default function LoginScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1 }}>
-      <StatusBar style="light" />
-      <LinearGradient
-        colors={['#1e3a8a', '#7c3aed', '#ec4899']}
-        style={{ flex: 1 }}
-      >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <ScrollView
-              contentContainerStyle={{ flexGrow: 1 }}
-              keyboardShouldPersistTaps="handled"
-            >
-              <View style={styles.content}>
-                <Text style={styles.title}>NSync Login</Text>
-                <Text style={styles.subtitle}>Welcome back, log in to continue</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar style="dark" />
+      <KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            <Text style={styles.brand}>NSync</Text>
+            <Text style={styles.subtitle}>Tenant workspace management</Text>
 
-                <TextInput
-                  style={styles.input}
-                  placeholder="Email"
-                  placeholderTextColor="#9ca3af"
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  value={email}
-                  onChangeText={setEmail}
-                  editable={!loading}
-                />
+            <View style={styles.card}>
+              <Text style={styles.title}>Sign in</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Email"
+                placeholderTextColor="#94a3b8"
+                autoCapitalize="none"
+                keyboardType="email-address"
+                value={email}
+                onChangeText={setEmail}
+                editable={!loading}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Password"
+                placeholderTextColor="#94a3b8"
+                secureTextEntry
+                value={password}
+                onChangeText={setPassword}
+                editable={!loading}
+              />
 
-                <TextInput
-                  style={styles.input}
-                  placeholder="Password"
-                  placeholderTextColor="#9ca3af"
-                  secureTextEntry
-                  value={password}
-                  onChangeText={setPassword}
-                  editable={!loading}
-                />
+              <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleLogin} disabled={loading}>
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Login</Text>}
+              </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[styles.button, loading && styles.buttonDisabled]}
-                  onPress={handleLogin}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.buttonText}>Login</Text>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-                  <Text style={styles.link}>No account? <Text style={styles.linkBold}>Register</Text></Text>
-                </TouchableOpacity>
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or continue with</Text>
+                <View style={styles.dividerLine} />
               </View>
-            </ScrollView>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
-      </LinearGradient>
+
+              <TouchableOpacity
+                style={styles.socialButton}
+                onPress={() => handleSocialLoginPress('Google')}
+                activeOpacity={0.88}
+              >
+                <Ionicons name="logo-google" size={20} color="#0f172a" />
+                <Text style={styles.socialButtonText}>Sign in with Google</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.socialButton}
+                onPress={() => handleSocialLoginPress('Facebook')}
+                activeOpacity={0.88}
+              >
+                <Ionicons name="logo-facebook" size={20} color="#0f172a" />
+                <Text style={styles.socialButtonText}>Sign in with Facebook</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={() => navigation.navigate('Register')}>
+                <Text style={styles.link}>No account? <Text style={styles.linkStrong}>Register</Text></Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
+  safeArea: {
     flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 32,
-    paddingVertical: 40,
+    backgroundColor: '#f4f6f8',
   },
-  title: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#fff',
-    textAlign: 'center',
-    marginBottom: 8,
+  keyboard: {
+    flex: 1,
+  },
+  content: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    padding: 20,
+  },
+  brand: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#0f172a',
   },
   subtitle: {
-    fontSize: 16,
-    color: '#e5e7eb',
-    textAlign: 'center',
-    marginBottom: 40,
+    marginTop: 4,
+    marginBottom: 18,
+    color: '#64748b',
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 16,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 10,
   },
   input: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 25,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    marginBottom: 16,
-    fontSize: 16,
-    color: '#fff',
+    height: 48,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: '#dbe1ea',
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    color: '#0f172a',
   },
   button: {
-    backgroundColor: '#fff',
-    borderRadius: 25,
-    paddingVertical: 16,
+    marginTop: 4,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: '#0f172a',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 24,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    marginBottom: 10,
   },
   buttonDisabled: {
     opacity: 0.7,
   },
   buttonText: {
-    color: '#7c3aed',
-    fontSize: 18,
-    fontWeight: 'bold',
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#e2e8f0',
+  },
+  dividerText: {
+    color: '#64748b',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  socialButton: {
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  socialButtonText: {
+    color: '#0f172a',
+    fontWeight: '600',
+    fontSize: 15,
   },
   link: {
-    color: '#e5e7eb',
     textAlign: 'center',
-    fontSize: 16,
+    color: '#64748b',
+    fontSize: 14,
   },
-  linkBold: {
-    color: '#fff',
-    fontWeight: 'bold',
+  linkStrong: {
+    color: '#0f172a',
+    fontWeight: '700',
   },
 });

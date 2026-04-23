@@ -7,7 +7,11 @@ import {
   Alert,
   StyleSheet,
   Image,
+  ScrollView,
+  ActivityIndicator,
 } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
@@ -16,14 +20,13 @@ import { uploadImageToCloudinary } from '../utils/cloudinaryHelper';
 export default function EditBoardScreen({ route, navigation }) {
   const { board } = route.params;
 
-  const [title, setTitle] = useState(board.title);
-  const [description, setDescription] = useState(board.description);
+  const [title, setTitle] = useState(board.title || '');
+  const [description, setDescription] = useState(board.description || '');
   const [imageUri, setImageUri] = useState(null);
   const [uploading, setUploading] = useState(false);
 
   const pickImage = async () => {
-    const permissionResult =
-      await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (!permissionResult.granted) {
       Alert.alert('Permission needed', 'Please allow access to your photos.');
@@ -49,7 +52,7 @@ export default function EditBoardScreen({ route, navigation }) {
 
     try {
       setUploading(true);
-      let updatedData = {
+      const updatedData = {
         title: title.trim(),
         description: description.trim(),
       };
@@ -60,8 +63,7 @@ export default function EditBoardScreen({ route, navigation }) {
       }
 
       await updateDoc(doc(db, 'boards', board.id), updatedData);
-
-      Alert.alert('Success', 'Board updated');
+      Alert.alert('Success', 'Board updated.');
       navigation.goBack();
     } catch (error) {
       console.log(error);
@@ -72,98 +74,121 @@ export default function EditBoardScreen({ route, navigation }) {
   };
 
   return (
-    <View style={styles.container}>
-      <TextInput
-        style={styles.input}
-        value={title}
-        onChangeText={setTitle}
-        placeholder="Board Title"
-      />
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar style="dark" />
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <Text style={styles.title}>Edit Board</Text>
+        <Text style={styles.subtitle}>Update board details.</Text>
 
-      <TextInput
-        style={[styles.input, styles.multiline]}
-        value={description}
-        onChangeText={setDescription}
-        placeholder="Description"
-        multiline
-      />
+        <View style={styles.card}>
+          <Text style={styles.label}>Board Title</Text>
+          <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Board title" />
 
-      {board.boardImageUrl && !imageUri && (
-        <Image source={{ uri: board.boardImageUrl }} style={styles.currentImage} />
-      )}
+          <Text style={styles.label}>Description</Text>
+          <TextInput
+            style={[styles.input, styles.multiline]}
+            value={description}
+            onChangeText={setDescription}
+            placeholder="Description"
+            multiline
+          />
 
-      <TouchableOpacity style={styles.imageButton} onPress={pickImage}>
-        <Text style={styles.imageButtonText}>
-          {imageUri ? 'Change Wallpaper' : 'Pick New Wallpaper'}
-        </Text>
-      </TouchableOpacity>
+          {board.boardImageUrl && !imageUri ? <Image source={{ uri: board.boardImageUrl }} style={styles.previewImage} /> : null}
 
-      {imageUri && <Image source={{ uri: imageUri }} style={styles.previewImage} />}
+          <TouchableOpacity style={styles.secondaryButton} onPress={pickImage}>
+            <Text style={styles.secondaryButtonText}>{imageUri ? 'Change Cover' : 'Pick New Cover'}</Text>
+          </TouchableOpacity>
 
-      <TouchableOpacity
-        style={[styles.button, uploading && styles.buttonDisabled]}
-        onPress={handleUpdateBoard}
-        disabled={uploading}
-      >
-        <Text style={styles.buttonText}>
-          {uploading ? 'Updating...' : 'Update Board'}
-        </Text>
-      </TouchableOpacity>
-    </View>
+          {imageUri ? <Image source={{ uri: imageUri }} style={styles.previewImage} /> : null}
+
+          <TouchableOpacity style={[styles.primaryButton, uploading && styles.buttonDisabled]} onPress={handleUpdateBoard} disabled={uploading}>
+            {uploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Update Board</Text>}
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    padding: 20,
+    backgroundColor: '#f4f6f8',
+  },
+  content: {
+    padding: 16,
+    paddingBottom: 24,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  subtitle: {
+    marginTop: 4,
+    marginBottom: 14,
+    color: '#64748b',
+  },
+  card: {
     backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 14,
+  },
+  label: {
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 6,
   },
   input: {
+    height: 48,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: '#dbe1ea',
     borderRadius: 10,
-    padding: 12,
-    marginBottom: 12,
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    color: '#0f172a',
   },
   multiline: {
-    height: 100,
+    height: 96,
     textAlignVertical: 'top',
+    paddingTop: 10,
   },
-  currentImage: {
-    width: '100%',
-    height: 120,
+  secondaryButton: {
+    height: 44,
     borderRadius: 10,
-    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    backgroundColor: '#f8fafc',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
   },
-  imageButton: {
-    backgroundColor: '#0f766e',
-    padding: 14,
-    borderRadius: 10,
-    marginBottom: 12,
-  },
-  imageButtonText: {
-    color: '#fff',
-    textAlign: 'center',
-    fontWeight: 'bold',
+  secondaryButtonText: {
+    color: '#0f172a',
+    fontWeight: '600',
   },
   previewImage: {
     width: '100%',
-    height: 120,
+    height: 140,
     borderRadius: 10,
-    marginBottom: 12,
+    marginBottom: 10,
   },
-  button: {
-    backgroundColor: '#2563eb',
-    padding: 14,
+  primaryButton: {
+    height: 48,
     borderRadius: 10,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  primaryButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
   },
   buttonDisabled: {
     opacity: 0.7,
-  },
-  buttonText: {
-    color: '#fff',
-    textAlign: 'center',
-    fontWeight: 'bold',
   },
 });

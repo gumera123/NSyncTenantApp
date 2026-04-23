@@ -1,4 +1,3 @@
-// src/screens/RegisterScreen.js
 import React, { useState } from 'react';
 import {
   View,
@@ -14,12 +13,12 @@ import {
   Platform,
   Keyboard,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../../firebaseConfig';
+import { normalizeEmail } from '../utils/workspaceInvite';
 
 export default function RegisterScreen({ navigation }) {
   const [name, setName] = useState('');
@@ -45,17 +44,26 @@ export default function RegisterScreen({ navigation }) {
 
     try {
       setLoading(true);
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
       const user = userCredential.user;
+      const normalizedEmail = normalizeEmail(email);
 
       await setDoc(doc(db, 'users', user.uid), {
         uid: user.uid,
         name: name.trim(),
-        email: email.trim(),
+        email: normalizedEmail,
+        role: 'Admin',
+        workspaceRoleTitle: 'Workspace Owner',
+        organizationId: user.uid,
+        organizationName: name.trim(),
+        homeOrganizationId: user.uid,
+        homeOrganizationName: name.trim(),
+        invitedBy: '',
         createdAt: serverTimestamp(),
       });
 
       Alert.alert('Success', 'Account created successfully.');
+      navigation.navigate('Login');
     } catch (error) {
       Alert.alert('Registration Failed', error.message);
     } finally {
@@ -64,138 +72,122 @@ export default function RegisterScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1 }}>
-      <StatusBar style="light" />
-      <LinearGradient
-        colors={['#1e3a8a', '#7c3aed', '#ec4899']}
-        style={{ flex: 1 }}
-      >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <ScrollView
-              contentContainerStyle={{ flexGrow: 1 }}
-              keyboardShouldPersistTaps="handled"
-            >
-              <View style={styles.content}>
-                <Text style={styles.title}>Create Account</Text>
-                <Text style={styles.subtitle}>Sign up to get started</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar style="dark" />
+      <KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            <Text style={styles.brand}>Create account</Text>
+            <Text style={styles.subtitle}>Start managing tasks in a clean workspace.</Text>
 
-                <TextInput
-                  style={styles.input}
-                  placeholder="Full Name"
-                  placeholderTextColor="#9ca3af"
-                  value={name}
-                  onChangeText={setName}
-                  editable={!loading}
-                />
+            <View style={styles.card}>
+              <TextInput
+                style={styles.input}
+                placeholder="Full name"
+                placeholderTextColor="#94a3b8"
+                value={name}
+                onChangeText={setName}
+                editable={!loading}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Email"
+                placeholderTextColor="#94a3b8"
+                autoCapitalize="none"
+                keyboardType="email-address"
+                value={email}
+                onChangeText={setEmail}
+                editable={!loading}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Password"
+                placeholderTextColor="#94a3b8"
+                secureTextEntry
+                value={password}
+                onChangeText={setPassword}
+                editable={!loading}
+              />
 
-                <TextInput
-                  style={styles.input}
-                  placeholder="Email"
-                  placeholderTextColor="#9ca3af"
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  value={email}
-                  onChangeText={setEmail}
-                  editable={!loading}
-                />
+              <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleRegister} disabled={loading}>
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Create Account</Text>}
+              </TouchableOpacity>
 
-                <TextInput
-                  style={styles.input}
-                  placeholder="Password"
-                  placeholderTextColor="#9ca3af"
-                  secureTextEntry
-                  value={password}
-                  onChangeText={setPassword}
-                  editable={!loading}
-                />
-
-                <TouchableOpacity
-                  style={[styles.button, loading && styles.buttonDisabled]}
-                  onPress={handleRegister}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#7c3aed" />
-                  ) : (
-                    <Text style={styles.buttonText}>Sign up</Text>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-                  <Text style={styles.link}>Already have an account? <Text style={styles.linkBold}>Login</Text></Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
-      </LinearGradient>
+              <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+                <Text style={styles.link}>Already have an account? <Text style={styles.linkStrong}>Login</Text></Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
+  safeArea: {
     flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 32,
-    paddingVertical: 40,
+    backgroundColor: '#f4f6f8',
   },
-  title: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#fff',
-    textAlign: 'center',
-    marginBottom: 8,
+  keyboard: {
+    flex: 1,
+  },
+  content: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    padding: 20,
+  },
+  brand: {
+    fontSize: 30,
+    fontWeight: '800',
+    color: '#0f172a',
   },
   subtitle: {
-    fontSize: 16,
-    color: '#e5e7eb',
-    textAlign: 'center',
-    marginBottom: 40,
+    marginTop: 4,
+    marginBottom: 18,
+    color: '#64748b',
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 16,
   },
   input: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 25,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    marginBottom: 16,
-    fontSize: 16,
-    color: '#fff',
+    height: 48,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: '#dbe1ea',
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    color: '#0f172a',
   },
   button: {
-    backgroundColor: '#fff',
-    borderRadius: 25,
-    paddingVertical: 16,
+    marginTop: 4,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: '#0f172a',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 24,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    marginBottom: 10,
   },
   buttonDisabled: {
     opacity: 0.7,
   },
   buttonText: {
-    color: '#7c3aed',
-    fontSize: 18,
-    fontWeight: 'bold',
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
   },
   link: {
-    color: '#e5e7eb',
     textAlign: 'center',
-    fontSize: 16,
+    color: '#64748b',
+    fontSize: 14,
   },
-  linkBold: {
-    color: '#fff',
-    fontWeight: 'bold',
+  linkStrong: {
+    color: '#0f172a',
+    fontWeight: '700',
   },
 });

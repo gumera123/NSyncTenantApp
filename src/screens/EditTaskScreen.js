@@ -7,7 +7,10 @@ import {
   Alert,
   StyleSheet,
   Platform,
+  ScrollView,
 } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
@@ -45,7 +48,6 @@ export default function EditTaskScreen({ route, navigation }) {
 
     try {
       const taskRef = doc(db, 'tasks', task.id);
-
       await updateDoc(taskRef, {
         title: title.trim(),
         description: description.trim(),
@@ -62,161 +64,194 @@ export default function EditTaskScreen({ route, navigation }) {
   };
 
   const handleDeleteTask = async () => {
-    Alert.alert(
-      'Delete Task',
-      'Are you sure you want to delete this task?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteDoc(doc(db, 'tasks', task.id));
-              Alert.alert('Success', 'Task deleted successfully.');
-              navigation.goBack();
-            } catch (error) {
-              console.log('Delete task error:', error);
-              Alert.alert('Error', error.message);
-            }
-          },
+    Alert.alert('Delete Task', 'Are you sure you want to delete this task?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteDoc(doc(db, 'tasks', task.id));
+            Alert.alert('Success', 'Task deleted successfully.');
+            navigation.goBack();
+          } catch (error) {
+            console.log('Delete task error:', error);
+            Alert.alert('Error', error.message);
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
 
   return (
-    <View style={styles.container}>
-      <TextInput
-        style={styles.input}
-        placeholder="Task Title"
-        value={title}
-        onChangeText={setTitle}
-      />
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar style="dark" />
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <Text style={styles.title}>Edit Task</Text>
+        <Text style={styles.subtitle}>Update task details.</Text>
 
-      <TextInput
-        style={[styles.input, styles.multiline]}
-        placeholder="Description"
-        value={description}
-        onChangeText={setDescription}
-        multiline
-      />
+        <View style={styles.card}>
+          <Text style={styles.label}>Task Title</Text>
+          <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Task title" />
 
-      <View style={styles.pickerContainer}>
-        <Picker
-          selectedValue={status}
-          onValueChange={(itemValue) => setStatus(itemValue)}
-        >
-          <Picker.Item label="To Do" value="To Do" />
-          <Picker.Item label="In Progress" value="In Progress" />
-          <Picker.Item label="Done" value="Done" />
-        </Picker>
-      </View>
+          <Text style={styles.label}>Description</Text>
+          <TextInput
+            style={[styles.input, styles.multiline]}
+            value={description}
+            onChangeText={setDescription}
+            placeholder="Description"
+            multiline
+          />
 
-      <TouchableOpacity
-        style={styles.dateButton}
-        onPress={() => setShowDatePicker(true)}
-      >
-        <Text style={styles.dateButtonLabel}>📅 Select Due Date</Text>
-        <Text style={styles.dateButtonValue}>{formatDateToString(dueDate)}</Text>
-      </TouchableOpacity>
+          <Text style={styles.label}>Status</Text>
+          <View style={styles.pickerWrap}>
+            <Picker selectedValue={status} onValueChange={(value) => setStatus(value)}>
+              <Picker.Item label="To Do" value="To Do" />
+              <Picker.Item label="In Progress" value="In Progress" />
+              <Picker.Item label="Done" value="Done" />
+            </Picker>
+          </View>
 
-      {showDatePicker && (
-        <DateTimePicker
-          value={dueDate}
-          mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={handleDateChange}
-        />
-      )}
+          <TouchableOpacity style={styles.dateButton} onPress={() => setShowDatePicker(true)}>
+            <Text style={styles.dateLabel}>Due date</Text>
+            <Text style={styles.dateValue}>{formatDateToString(dueDate)}</Text>
+          </TouchableOpacity>
 
-      {Platform.OS === 'ios' && showDatePicker && (
-        <TouchableOpacity
-          style={styles.datePickerConfirm}
-          onPress={() => setShowDatePicker(false)}
-        >
-          <Text style={styles.datePickerConfirmText}>Done</Text>
-        </TouchableOpacity>
-      )}
+          {showDatePicker ? (
+            <DateTimePicker
+              value={dueDate}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              onChange={handleDateChange}
+            />
+          ) : null}
 
-      <TouchableOpacity style={styles.updateButton} onPress={handleUpdateTask}>
-        <Text style={styles.buttonText}>Update Task</Text>
-      </TouchableOpacity>
+          {Platform.OS === 'ios' && showDatePicker ? (
+            <TouchableOpacity style={styles.doneButton} onPress={() => setShowDatePicker(false)}>
+              <Text style={styles.doneButtonText}>Done</Text>
+            </TouchableOpacity>
+          ) : null}
 
-      <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteTask}>
-        <Text style={styles.buttonText}>Delete Task</Text>
-      </TouchableOpacity>
-    </View>
+          <TouchableOpacity style={styles.primaryButton} onPress={handleUpdateTask}>
+            <Text style={styles.primaryButtonText}>Update Task</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteTask}>
+            <Text style={styles.deleteButtonText}>Delete Task</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    padding: 20,
+    backgroundColor: '#f4f6f8',
+  },
+  content: {
+    padding: 16,
+    paddingBottom: 24,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  subtitle: {
+    marginTop: 4,
+    marginBottom: 14,
+    color: '#64748b',
+  },
+  card: {
     backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 14,
+  },
+  label: {
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 6,
   },
   input: {
+    height: 48,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: '#dbe1ea',
     borderRadius: 10,
-    padding: 12,
-    marginBottom: 12,
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    color: '#0f172a',
   },
   multiline: {
-    height: 100,
+    height: 96,
     textAlignVertical: 'top',
+    paddingTop: 10,
   },
-  pickerContainer: {
+  pickerWrap: {
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: '#dbe1ea',
     borderRadius: 10,
-    marginBottom: 12,
+    backgroundColor: '#f8fafc',
+    marginBottom: 10,
     overflow: 'hidden',
   },
   dateButton: {
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: '#dbe1ea',
     borderRadius: 10,
-    padding: 12,
-    marginBottom: 12,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
   },
-  dateButtonLabel: {
+  dateLabel: {
     fontSize: 12,
-    color: '#6b7280',
+    color: '#64748b',
     marginBottom: 4,
   },
-  dateButtonValue: {
-    fontSize: 16,
+  dateValue: {
+    color: '#0f172a',
     fontWeight: '600',
-    color: '#111827',
   },
-  datePickerConfirm: {
-    backgroundColor: '#2563eb',
-    padding: 12,
+  doneButton: {
+    height: 40,
     borderRadius: 10,
-    marginBottom: 12,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
   },
-  datePickerConfirmText: {
+  doneButtonText: {
     color: '#fff',
-    textAlign: 'center',
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
-  updateButton: {
-    backgroundColor: '#2563eb',
-    padding: 14,
+  primaryButton: {
+    height: 48,
     borderRadius: 10,
-    marginBottom: 12,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  primaryButtonText: {
+    color: '#fff',
+    fontWeight: '700',
   },
   deleteButton: {
-    backgroundColor: '#dc2626',
-    padding: 14,
+    height: 48,
     borderRadius: 10,
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  buttonText: {
-    color: '#fff',
-    textAlign: 'center',
-    fontWeight: 'bold',
+  deleteButtonText: {
+    color: '#dc2626',
+    fontWeight: '700',
   },
 });

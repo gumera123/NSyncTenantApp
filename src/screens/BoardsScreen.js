@@ -11,23 +11,35 @@ import {
   Image,
   Modal,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { collection, getDocs, query, where, deleteDoc, doc } from 'firebase/firestore';
+import { Picker } from '@react-native-picker/picker';
+import { collection, getDocs, query, where, deleteDoc, doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebaseConfig';
+import { createWorkspaceInvite } from '../utils/workspaceInvite';
 
 export default function BoardsScreen({ navigation }) {
   const [boards, setBoards] = useState([]);
+  const [favoriteBoards, setFavoriteBoards] = useState({});
+  const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedBoard, setSelectedBoard] = useState(null);
-  const [showBoardModal, setShowBoardModal] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showSearchInput, setShowSearchInput] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('Member');
+  const [inviteLoading, setInviteLoading] = useState(false);
 
   const currentUserId = auth.currentUser?.uid;
-  const userPhotoUrl = auth.currentUser?.photoURL;
-  const userInitial = (auth.currentUser?.displayName || 'U').charAt(0).toUpperCase();
+  const normalizedRole = (userData?.role || '').trim().toLowerCase();
+  const isWorkspaceOwner = (userData?.organizationId || '') === (currentUserId || '');
+  const isAdmin = normalizedRole === 'admin' || isWorkspaceOwner;
+  const workspaceTitle =
+    userData?.organizationName?.trim() ||
+    userData?.teamName?.trim() ||
+    userData?.name?.trim() ||
+    'Workspace';
 
   const fetchBoards = useCallback(async () => {
     if (!auth.currentUser) {
@@ -37,29 +49,59 @@ export default function BoardsScreen({ navigation }) {
     }
 
     try {
-      const q = query(
-        collection(db, 'boards'),
-        where('userId', '==', currentUserId)
-      );
+      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+      const userProfile = userDoc.exists() ? userDoc.data() : null;
+      const organizationId = userProfile?.organizationId || auth.currentUser.uid;
 
-      const snapshot = await getDocs(q);
-      const boardList = snapshot.docs.map((docItem) => ({
-        id: docItem.id,
-        ...docItem.data(),
-      }));
+      const [workspaceBoardsSnapshot, legacyBoardsSnapshot] = await Promise.all([
+        getDocs(query(collection(db, 'boards'), where('organizationId', '==', organizationId))),
+        getDocs(query(collection(db, 'boards'), where('userId', '==', organizationId))),
+      ]);
 
-      setBoards(boardList);
+      const mergedBoards = [...workspaceBoardsSnapshot.docs, ...legacyBoardsSnapshot.docs];
+      const uniqueBoards = [];
+      const seenBoardIds = new Set();
+
+      mergedBoards.forEach((docItem) => {
+        if (seenBoardIds.has(docItem.id)) {
+          return;
+        }
+
+        seenBoardIds.add(docItem.id);
+        uniqueBoards.push({
+          id: docItem.id,
+          ...docItem.data(),
+        });
+      });
+
+      setBoards(uniqueBoards);
     } catch (error) {
       console.log('Error fetching boards:', error);
     } finally {
       setLoading(false);
     }
-  }, [currentUserId]);
+  }, []);
+
+  const fetchCurrentUserData = useCallback(async () => {
+    if (!auth.currentUser) {
+      setUserData(null);
+      return;
+    }
+
+    try {
+      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+      if (userDoc.exists()) {
+        setUserData(userDoc.data());
+      }
+    } catch (error) {
+      console.log('Error fetching current user:', error);
+    }
+  }, []);
 
   const handleDeleteBoard = async (boardId) => {
     try {
       await deleteDoc(doc(db, 'boards', boardId));
-      Alert.alert('Success', 'Board deleted');
+      Alert.alert('Success', 'Board deleted.');
       fetchBoards();
     } catch (error) {
       console.log(error);
@@ -67,466 +109,521 @@ export default function BoardsScreen({ navigation }) {
     }
   };
 
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', fetchBoards);
-    return unsubscribe;
-  }, [navigation, currentUserId, fetchBoards]);
+  const handleDeleteBoardWithConfirm = (board) => {
+    Alert.alert(
+      'Delete Board',
+      `Are you sure you want to delete "${board.title}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => handleDeleteBoard(board.id),
+        },
+      ]
+    );
+  };
 
-  const filteredBoards = boards.filter((board) =>
-    board.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    board.description?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  useEffect(() => {
+    Promise.all([fetchBoards(), fetchCurrentUserData()]).catch((error) => {
+      console.log('Error loading boards home data:', error);
+    });
+
+    const unsubscribe = navigation.addListener('focus', async () => {
+      await Promise.all([fetchBoards(), fetchCurrentUserData()]);
+    });
+    return unsubscribe;
+  }, [navigation, fetchBoards, fetchCurrentUserData]);
+
+  const handleInviteMember = async () => {
+    if (!auth.currentUser || !isAdmin) {
+      Alert.alert('Admin Only', 'Only workspace admins can send invitations.');
+      return;
+    }
+
+    if (!inviteEmail.trim() || !inviteEmail.includes('@')) {
+      Alert.alert('Validation Error', 'Please enter a valid email address.');
+      return;
+    }
+
+    try {
+      setInviteLoading(true);
+
+      await createWorkspaceInvite({
+        invitedEmail: inviteEmail,
+        role: inviteRole,
+        invitedByUid: auth.currentUser.uid,
+        invitedByName: userData?.name || '',
+        organizationId: userData?.organizationId || auth.currentUser.uid,
+        organizationName: userData?.organizationName || userData?.name || 'Workspace',
+      });
+
+      setInviteEmail('');
+      setInviteRole('Member');
+      setShowInviteModal(false);
+      Alert.alert('Success', 'Invitation sent.');
+    } catch (error) {
+      console.log('Error inviting member:', error);
+      Alert.alert('Error', error.message);
+    } finally {
+      setInviteLoading(false);
+    }
+  };
+
+  const filteredBoards = boards.filter((board) => {
+    const title = board.title?.toLowerCase() || '';
+    const description = board.description?.toLowerCase() || '';
+    const queryText = searchQuery.toLowerCase();
+    return title.includes(queryText) || description.includes(queryText);
+  });
+
+  const sortedBoards = [...filteredBoards].sort((left, right) => {
+    const leftFavorite = favoriteBoards[left.id] ? 1 : 0;
+    const rightFavorite = favoriteBoards[right.id] ? 1 : 0;
+
+    if (leftFavorite !== rightFavorite) {
+      return rightFavorite - leftFavorite;
+    }
+
+    const leftTitle = (left.title || '').toLowerCase();
+    const rightTitle = (right.title || '').toLowerCase();
+    return leftTitle.localeCompare(rightTitle);
+  });
+
+  const toggleFavorite = (boardId) => {
+    setFavoriteBoards((currentFavorites) => ({
+      ...currentFavorites,
+      [boardId]: !currentFavorites[boardId],
+    }));
+  };
 
   const renderBoard = ({ item }) => (
     <TouchableOpacity
       style={styles.card}
-      onPress={() => {
-        setSelectedBoard(item);
-        setShowBoardModal(true);
-      }}
-      activeOpacity={0.7}
+      onPress={() => navigation.navigate('Tasks', { board: item })}
+      activeOpacity={0.85}
     >
-      <View style={styles.imageContainer}>
+      <View style={styles.cardImageColumn}>
         {item.boardImageUrl ? (
           <Image source={{ uri: item.boardImageUrl }} style={styles.boardImage} />
         ) : (
           <View style={styles.boardImagePlaceholder}>
-            <Text style={styles.placeholderText}>No cover</Text>
+            <Ionicons name="layers-outline" size={30} color="#111827" />
           </View>
         )}
-        <View style={styles.imageOverlay} />
       </View>
+
       <View style={styles.cardContent}>
-        <View style={styles.cardTag}>
-          <Text style={styles.cardTagText}>Workspace</Text>
-        </View>
-        <Text style={styles.boardTitle}>{item.title}</Text>
-        <Text style={styles.boardDescription}>
-          {item.description || 'No description'}
+        <Text style={styles.boardTitle} numberOfLines={1}>{item.title}</Text>
+
+        <Text style={styles.boardDescription} numberOfLines={2}>
+          {item.description || 'Workspace overview and task tracking.'}
         </Text>
+
+        <View style={styles.actionRow}>
+          <View style={styles.quickActionsRow}>
+            <TouchableOpacity
+              style={[styles.favoriteButton, favoriteBoards[item.id] && styles.favoriteButtonActive]}
+              onPress={() => toggleFavorite(item.id)}
+            >
+              <Ionicons 
+                name={favoriteBoards[item.id] ? 'bookmark' : 'bookmark-outline'} 
+                size={18} 
+                color={favoriteBoards[item.id] ? '#ffffff' : '#111827'} 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconButton} onPress={() => navigation.navigate('EditBoard', { board: item })}>
+              <Ionicons name="create-outline" size={18} color="#111827" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.iconButton, styles.deleteIconButton]}
+              onPress={(event) => {
+                event.stopPropagation();
+                handleDeleteBoardWithConfirm(item);
+              }}
+            >
+              <Ionicons name="trash-outline" size={18} color="#dc2626" />
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity style={styles.primaryAction} onPress={() => navigation.navigate('Tasks', { board: item })}>
+            <Text style={styles.primaryActionText}>Open Board</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </TouchableOpacity>
   );
 
   if (loading) {
     return (
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
-        <LinearGradient
-          colors={['#ffffff', '#f8f9ff', '#f0f0ff']}
-          style={styles.container}
-        >
-          <View style={styles.center}>
-            <ActivityIndicator size="large" />
-          </View>
-        </LinearGradient>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#2563eb" />
+        </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={{ flex: 1 }}>
+    <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
-      <LinearGradient
-        colors={['#f8f9ff', '#eef2ff']}
-        style={styles.container}
-      >
-        <LinearGradient
-          colors={['#1e3a8a', '#7c3aed']}
-          start={[0, 0]}
-          end={[1, 1]}
-          style={styles.header}
-        >
-          <View style={styles.headerLeft}>
-            <Text style={styles.pageTitle}>Boards</Text>
+      <View style={styles.container}>
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={styles.pageTitle}>{workspaceTitle}</Text>
             <Text style={styles.pageSubtitle}>Your workspaces</Text>
           </View>
-          <TouchableOpacity
-            style={styles.profileAvatarWrapper}
-            onPress={() => navigation.navigate('Profile')}
-          >
-            {userPhotoUrl ? (
-              <Image
-                source={{ uri: userPhotoUrl }}
-                style={styles.profileAvatarImage}
-              />
-            ) : (
-              <View style={styles.profileAvatarFallback}>
-                <Text style={styles.profileAvatarFallbackText}>{userInitial}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </LinearGradient>
-
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={styles.actionCard}
-            onPress={() => navigation.navigate('AddBoard')}
-          >
-            <Text style={styles.actionCardLabel}>New Workspace</Text>
-            <Text style={styles.actionCardValue}>Create a board</Text>
-          </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.actionCard}
-            onPress={() => setShowSearch((prev) => !prev)}
+            style={styles.searchIconButton}
+            onPress={() => setShowSearchInput((currentValue) => !currentValue)}
+            activeOpacity={0.85}
           >
-            <Text style={styles.actionCardLabel}>Search Boards</Text>
-            <Text style={styles.actionCardValue}>Filter your list</Text>
+            <Ionicons name="search-outline" size={20} color="#111827" />
           </TouchableOpacity>
         </View>
 
-        {showSearch && (
-          <View style={styles.searchBar}> 
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search boards..."
-              placeholderTextColor="#94a3b8"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              autoCapitalize="none"
-            />
-          </View>
-        )}
+        {showSearchInput ? (
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search boards"
+            placeholderTextColor="#94a3b8"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoFocus
+          />
+        ) : null}
 
-      <FlatList
-        data={filteredBoards}
-        keyExtractor={(item) => item.id}
-        renderItem={renderBoard}
-        ListEmptyComponent={
-          <View style={styles.emptyWrapper}>
-            <Text style={styles.emptyTitle}>No boards found</Text>
-            <Text style={styles.emptySubtitle}>
-              Create a workspace or clear your search filter.
-            </Text>
-          </View>
-        }
-        contentContainerStyle={filteredBoards.length === 0 ? styles.emptyContainer : styles.listContainer}
-        showsVerticalScrollIndicator={false}
-      />
-
-      {/* Board Action Modal */}
-      <Modal
-        visible={showBoardModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowBoardModal(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowBoardModal(false)}
-        >
-          <View style={styles.modalContent}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>{selectedBoard?.title}</Text>
-            <TouchableOpacity
-              style={styles.modalButton}
-              onPress={() => {
-                setShowBoardModal(false);
-                navigation.navigate('Tasks', { board: selectedBoard });
-              }}
-            >
-              <Text style={styles.modalButtonText}>Open</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.modalButton}
-              onPress={() => {
-                setShowBoardModal(false);
-                navigation.navigate('EditBoard', { board: selectedBoard });
-              }}
-            >
-              <Text style={styles.modalButtonText}>Edit</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modalButton, styles.deleteButton]}
-              onPress={() => {
-                setShowBoardModal(false);
-                handleDeleteBoard(selectedBoard.id);
-              }}
-            >
-              <Text style={styles.deleteButtonText}>Delete</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modalButton, styles.cancelButton]}
-              onPress={() => setShowBoardModal(false)}
-            >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+        <TouchableOpacity style={styles.inviteButton} onPress={() => setShowInviteModal(true)}>
+          <Ionicons name="person-add-outline" size={17} color="#ffffff" />
+          <Text style={styles.inviteButtonText}>Invite Members</Text>
         </TouchableOpacity>
-      </Modal>
-      </LinearGradient>
+
+        <FlatList
+          data={sortedBoards}
+          keyExtractor={(item) => item.id}
+          renderItem={renderBoard}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>No boards found</Text>
+              <Text style={styles.emptySub}>Create a board or adjust your search query.</Text>
+            </View>
+          }
+          contentContainerStyle={sortedBoards.length === 0 ? styles.emptyContainer : styles.listContent}
+          showsVerticalScrollIndicator={false}
+        />
+
+        <Modal
+          visible={showInviteModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowInviteModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Invite Member</Text>
+
+              <Text style={styles.modalLabel}>Registered Member Email</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="member@example.com"
+                placeholderTextColor="#94a3b8"
+                value={inviteEmail}
+                onChangeText={setInviteEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                editable={!inviteLoading}
+              />
+
+              <Text style={styles.modalLabel}>Role</Text>
+              <View style={styles.modalPickerWrap}>
+                <Picker
+                  selectedValue={inviteRole}
+                  onValueChange={(value) => setInviteRole(value)}
+                  enabled={!inviteLoading}
+                >
+                  <Picker.Item label="Member" value="Member" />
+                  <Picker.Item label="Manager" value="Manager" />
+                  <Picker.Item label="Editor" value="Editor" />
+                  <Picker.Item label="Viewer" value="Viewer" />
+                </Picker>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.modalPrimaryButton, inviteLoading && styles.modalPrimaryButtonDisabled]}
+                onPress={handleInviteMember}
+                disabled={inviteLoading}
+              >
+                <Text style={styles.modalPrimaryButtonText}>{inviteLoading ? 'Sending...' : 'Send Invite'}</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.modalClose} onPress={() => setShowInviteModal(false)}>
+                <Text style={styles.modalCloseText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#f4f6f8',
+  },
   container: {
     flex: 1,
-    backgroundColor: '#eef2ff',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 12,
-    padding: 24,
-    borderRadius: 32,
-    shadowColor: '#7c3aed',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.12,
-    shadowRadius: 24,
-    elevation: 8,
-  },
-  headerLeft: {
-    flex: 1,
-  },
-  pageTitle: {
-    fontSize: 34,
-    fontWeight: '800',
-    color: '#fff',
-    marginBottom: 8,
-  },
-  pageSubtitle: {
-    fontSize: 16,
-    color: '#dbeafe',
-    fontWeight: '600',
-  },
-  listContainer: {
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 40,
+    paddingTop: 10,
+    paddingBottom: 112,
   },
   center: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  pageTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  pageSubtitle: {
+    marginTop: 4,
+    color: '#64748b',
+  },
+  searchIconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchInput: {
+    height: 46,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    marginBottom: 12,
+    color: '#0f172a',
+  },
+  inviteButton: {
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: '#111827',
+    marginBottom: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  inviteButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  listContent: {
+    paddingBottom: 24,
+  },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 28,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(124, 58, 237, 0.12)',
-    marginBottom: 18,
+    borderColor: '#e2e8f0',
     overflow: 'hidden',
-    shadowColor: '#7c3aed',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.06,
-    shadowRadius: 24,
-    elevation: 6,
+    marginBottom: 12,
+    flexDirection: 'row',
+    minHeight: 154,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
   },
-  imageContainer: {
+  cardImageColumn: {
+    width: 118,
     position: 'relative',
   },
   boardImage: {
-    width: '100%',
-    height: 120,
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
-  },
-  boardImagePlaceholder: {
-    width: '100%',
-    height: 120,
-    backgroundColor: '#ede9fe',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
-  },
-  placeholderText: {
-    color: '#cbd5e1',
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  imageOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(124, 58, 237, 0.14)',
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
-  },
-  cardContent: {
-    padding: 18,
-  },
-  cardTag: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#eef2ff',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    marginBottom: 12,
-  },
-  cardTagText: {
-    color: '#4338ca',
-    fontWeight: '700',
-    fontSize: 12,
-    letterSpacing: 0.5,
-  },
-  boardTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#0f172a',
-    marginBottom: 8,
-  },
-  boardDescription: {
-    fontSize: 14,
-    color: '#475569',
-    lineHeight: 20,
-    marginTop: 8,
-  },
-  profileAvatarWrapper: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.4)',
-  },
-  profileAvatarImage: {
+    flex: 1,
     width: '100%',
     height: '100%',
   },
-  profileAvatarFallback: {
+  boardImagePlaceholder: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: '#f3f4f6',
   },
-  profileAvatarFallbackText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 18,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginHorizontal: 16,
-    marginBottom: 14,
-  },
-  actionCard: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 22,
-    padding: 18,
-    marginHorizontal: 4,
-    shadowColor: '#7c3aed',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 20,
-    elevation: 5,
-  },
-  actionCardLabel: {
-    color: '#0f172a',
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  actionCardValue: {
+  placeholderText: {
     color: '#64748b',
     fontSize: 13,
-    lineHeight: 18,
   },
-  searchBar: {
-    marginHorizontal: 16,
-    marginBottom: 18,
-    backgroundColor: '#fff',
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    elevation: 4,
+  cardContent: {
+    flex: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    justifyContent: 'center',
   },
-  searchInput: {
-    fontSize: 16,
+  boardTitle: {
+    fontSize: 17,
+    fontWeight: '800',
     color: '#0f172a',
-    padding: 0,
   },
-  emptyWrapper: {
+  boardDescription: {
+    marginTop: 4,
+    color: '#64748b',
+    lineHeight: 19,
+    fontSize: 13,
+  },
+  actionRow: {
+    marginTop: 12,
+    gap: 8,
+  },
+  quickActionsRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 60,
+    justifyContent: 'flex-start',
+    gap: 8,
   },
-  emptyTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1e3a8a',
-    marginBottom: 8,
+  favoriteButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  emptySubtitle: {
-    fontSize: 16,
-    color: '#475569',
-    textAlign: 'center',
-    lineHeight: 22,
-    maxWidth: 280,
+  favoriteButtonActive: {
+    borderColor: '#111827',
+    backgroundColor: '#111827',
+  },
+  iconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deleteIconButton: {
+    borderColor: '#fecaca',
+    backgroundColor: '#fff5f5',
+  },
+  primaryAction: {
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+  },
+  primaryActionText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  imageBadge: {
   },
   emptyContainer: {
     flexGrow: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
   },
-
-  /* Modal Styles */
+  emptyState: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    color: '#0f172a',
+    fontWeight: '700',
+  },
+  emptySub: {
+    marginTop: 6,
+    color: '#64748b',
+    textAlign: 'center',
+  },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(15, 23, 42, 0.3)',
+    justifyContent: 'center',
+    padding: 20,
   },
-  modalContent: {
+  modalCard: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    paddingBottom: 40,
-    minHeight: 320,
-  },
-  modalHandle: {
-    width: 40,
-    height: 5,
-    backgroundColor: '#e5e7eb',
-    borderRadius: 3,
-    alignSelf: 'center',
-    marginBottom: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 14,
   },
   modalTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
+    fontSize: 17,
+    fontWeight: '700',
     color: '#0f172a',
-    textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 10,
   },
-  modalButton: {
-    backgroundColor: '#f8fafc',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    marginBottom: 12,
+  modalClose: {
+    height: 40,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  modalButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
-  },
-  deleteButton: {
-    backgroundColor: '#fef2f2',
-  },
-  deleteButtonText: {
-    color: '#dc2626',
-  },
-  cancelButton: {
-    backgroundColor: '#f1f5f9',
-    marginTop: 12,
-  },
-  cancelButtonText: {
+  modalCloseText: {
     color: '#64748b',
+    fontWeight: '600',
+  },
+  modalLabel: {
+    color: '#0f172a',
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  modalInput: {
+    height: 46,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    color: '#0f172a',
+  },
+  modalPickerWrap: {
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  modalPrimaryButton: {
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  modalPrimaryButtonDisabled: {
+    opacity: 0.7,
+  },
+  modalPrimaryButtonText: {
+    color: '#fff',
+    fontWeight: '700',
   },
 });

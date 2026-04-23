@@ -7,12 +7,13 @@ import {
   StyleSheet,
   Text,
   Image,
+  ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, serverTimestamp, getDoc, doc } from 'firebase/firestore';
 import { auth, db } from '../../firebaseConfig';
 import { uploadImageToCloudinary } from '../utils/cloudinaryHelper';
 
@@ -23,8 +24,7 @@ export default function AddBoardScreen({ navigation }) {
   const [uploading, setUploading] = useState(false);
 
   const pickImage = async () => {
-    const permissionResult =
-      await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (!permissionResult.granted) {
       Alert.alert('Permission needed', 'Please allow access to your photos.');
@@ -53,6 +53,9 @@ export default function AddBoardScreen({ navigation }) {
     try {
       setUploading(true);
       let uploadedImageUrl = null;
+      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+      const userData = userDoc.exists() ? userDoc.data() : null;
+      const organizationId = userData?.organizationId || auth.currentUser.uid;
 
       if (imageUri) {
         uploadedImageUrl = await uploadImageToCloudinary(imageUri);
@@ -63,12 +66,17 @@ export default function AddBoardScreen({ navigation }) {
         description: description.trim(),
         userId: auth.currentUser.uid,
         createdBy: auth.currentUser.uid,
+        organizationId,
         createdAt: serverTimestamp(),
         boardImageUrl: uploadedImageUrl || null,
       });
 
       Alert.alert('Success', 'Board created successfully.');
-      navigation.goBack();
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        navigation.navigate('HomeTab');
+      }
     } catch (error) {
       Alert.alert('Error', error.message);
       console.log('Add board error:', error);
@@ -78,168 +86,126 @@ export default function AddBoardScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1 }}>
+    <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
-      <LinearGradient
-        colors={['#ffffff', '#f8f9ff', '#f0f0ff']}
-        style={styles.container}
-      >
-        <View style={styles.content}>
-          <View style={styles.accentCircleTop} />
-          <View style={styles.accentCircleBottom} />
-          <Text style={styles.title}>Create New Board</Text>
-          <Text style={styles.subtitle}>Add a new workspace to organize your tasks</Text>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <Text style={styles.title}>Create Board</Text>
+        <Text style={styles.subtitle}>Set up a new workspace.</Text>
 
-          <View style={styles.form}>
-            <TextInput
-              style={styles.input}
-              placeholder="Board Title"
-              placeholderTextColor="#9ca3af"
-              value={title}
-              onChangeText={setTitle}
-            />
+        <View style={styles.card}>
+          <Text style={styles.label}>Board Title</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Board title"
+            placeholderTextColor="#94a3b8"
+            value={title}
+            onChangeText={setTitle}
+          />
 
-            <TextInput
-              style={[styles.input, styles.multiline]}
-              placeholder="Description (optional)"
-              placeholderTextColor="#9ca3af"
-              value={description}
-              onChangeText={setDescription}
-              multiline
-            />
+          <Text style={styles.label}>Description</Text>
+          <TextInput
+            style={[styles.input, styles.multiline]}
+            placeholder="Optional description"
+            placeholderTextColor="#94a3b8"
+            value={description}
+            onChangeText={setDescription}
+            multiline
+          />
 
-            <TouchableOpacity style={styles.imageButton} onPress={pickImage}>
-              <Text style={styles.imageButtonText}>📷 Pick Board Wallpaper</Text>
-            </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryButton} onPress={pickImage}>
+            <Text style={styles.secondaryButtonText}>{imageUri ? 'Change Cover' : 'Choose Cover Image'}</Text>
+          </TouchableOpacity>
 
-            {imageUri && <Image source={{ uri: imageUri }} style={styles.previewImage} />}
+          {imageUri ? <Image source={{ uri: imageUri }} style={styles.previewImage} /> : null}
 
-            <TouchableOpacity
-              style={[styles.button, uploading && styles.buttonDisabled]}
-              onPress={handleAddBoard}
-              disabled={uploading}
-            >
-              <Text style={styles.buttonText}>
-                {uploading ? 'Creating...' : '✨ Create Board'}
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity style={[styles.primaryButton, uploading && styles.buttonDisabled]} onPress={handleAddBoard} disabled={uploading}>
+            {uploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Create Board</Text>}
+          </TouchableOpacity>
         </View>
-      </LinearGradient>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
+    backgroundColor: '#f4f6f8',
   },
   content: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-    position: 'relative',
+    padding: 16,
+    paddingBottom: 24,
   },
   title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#1e293b',
-    textAlign: 'center',
-    marginBottom: 8,
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#0f172a',
   },
   subtitle: {
-    fontSize: 16,
-    color: '#7c3aed',
-    textAlign: 'center',
-    marginBottom: 40,
+    marginTop: 4,
+    marginBottom: 14,
+    color: '#64748b',
   },
-  form: {
-    flex: 1,
+  card: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 14,
+  },
+  label: {
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 6,
   },
   input: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 25,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    marginBottom: 16,
-    fontSize: 16,
-    color: '#0f172a',
+    height: 48,
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
+    borderColor: '#dbe1ea',
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    color: '#0f172a',
+    paddingHorizontal: 12,
+    marginBottom: 10,
   },
   multiline: {
-    height: 100,
+    height: 96,
     textAlignVertical: 'top',
+    paddingTop: 10,
   },
-  imageButton: {
-    backgroundColor: '#1e3a8a',
-    paddingVertical: 16,
-    borderRadius: 25,
-    marginBottom: 16,
+  secondaryButton: {
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    backgroundColor: '#f8fafc',
+    justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#1e3a8a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    marginBottom: 10,
   },
-  imageButtonText: {
-    color: '#fff',
-    fontSize: 16,
+  secondaryButtonText: {
+    color: '#0f172a',
     fontWeight: '600',
   },
   previewImage: {
     width: '100%',
-    height: 180,
-    borderRadius: 25,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    height: 160,
+    borderRadius: 10,
+    marginBottom: 10,
   },
-  button: {
-    backgroundColor: '#1e3a8a',
-    paddingVertical: 18,
-    borderRadius: 25,
+  primaryButton: {
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 20,
-    shadowColor: '#1e3a8a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+  },
+  primaryButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
   },
   buttonDisabled: {
     opacity: 0.7,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  accentCircleTop: {
-    position: 'absolute',
-    top: -30,
-    right: -30,
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: 'rgba(124, 58, 237, 0.17)',
-  },
-  accentCircleBottom: {
-    position: 'absolute',
-    bottom: 10,
-    left: -20,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: 'rgba(236, 72, 153, 0.18)',
   },
 });
