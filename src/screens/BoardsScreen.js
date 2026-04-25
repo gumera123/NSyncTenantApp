@@ -14,7 +14,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Picker } from '@react-native-picker/picker';
 import { collection, getDocs, query, where, deleteDoc, doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebaseConfig';
 import { createWorkspaceInvite } from '../utils/workspaceInvite';
@@ -28,7 +27,6 @@ export default function BoardsScreen({ navigation }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState('Member');
   const [inviteLoading, setInviteLoading] = useState(false);
 
   const currentUserId = auth.currentUser?.uid;
@@ -151,7 +149,7 @@ export default function BoardsScreen({ navigation }) {
 
       await createWorkspaceInvite({
         invitedEmail: inviteEmail,
-        role: inviteRole,
+        role: 'Member',
         invitedByUid: auth.currentUser.uid,
         invitedByName: userData?.name || '',
         organizationId: userData?.organizationId || auth.currentUser.uid,
@@ -159,7 +157,6 @@ export default function BoardsScreen({ navigation }) {
       });
 
       setInviteEmail('');
-      setInviteRole('Member');
       setShowInviteModal(false);
       Alert.alert('Success', 'Invitation sent.');
     } catch (error) {
@@ -336,19 +333,7 @@ export default function BoardsScreen({ navigation }) {
                 editable={!inviteLoading}
               />
 
-              <Text style={styles.modalLabel}>Role</Text>
-              <View style={styles.modalPickerWrap}>
-                <Picker
-                  selectedValue={inviteRole}
-                  onValueChange={(value) => setInviteRole(value)}
-                  enabled={!inviteLoading}
-                >
-                  <Picker.Item label="Member" value="Member" />
-                  <Picker.Item label="Manager" value="Manager" />
-                  <Picker.Item label="Editor" value="Editor" />
-                  <Picker.Item label="Viewer" value="Viewer" />
-                </Picker>
-              </View>
+              <Text style={styles.modalHint}>All invited users are added as members by default.</Text>
 
               <TouchableOpacity
                 style={[styles.modalPrimaryButton, inviteLoading && styles.modalPrimaryButtonDisabled]}
@@ -603,13 +588,11 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     color: '#0f172a',
   },
-  modalPickerWrap: {
-    borderWidth: 1,
-    borderColor: '#dbe1ea',
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
+  modalHint: {
+    marginTop: -2,
     marginBottom: 10,
-    overflow: 'hidden',
+    color: '#64748b',
+    fontSize: 12,
   },
   modalPrimaryButton: {
     height: 44,

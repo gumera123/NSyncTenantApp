@@ -1,8 +1,30 @@
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 
 export function normalizeEmail(email = '') {
   return email.trim().toLowerCase();
+}
+
+function upsertWorkspaceMembership(memberships = [], membership = {}) {
+  const organizationId = membership.organizationId || '';
+
+  if (!organizationId) {
+    return Array.isArray(memberships) ? memberships.filter(Boolean) : [];
+  }
+
+  const normalizedMemberships = Array.isArray(memberships) ? memberships.filter(Boolean) : [];
+  const filteredMemberships = normalizedMemberships.filter((currentMembership) => currentMembership.organizationId !== organizationId);
+
+  return [
+    ...filteredMemberships,
+    {
+      organizationId,
+      organizationName: membership.organizationName || '',
+      role: membership.role || 'Member',
+      workspaceRoleTitle: membership.workspaceRoleTitle || membership.role || 'Member',
+      invitedBy: membership.invitedBy || '',
+    },
+  ];
 }
 
 export async function getPendingInviteForEmail(email) {
@@ -218,6 +240,13 @@ export async function syncWorkspaceAccessForUser(user) {
     await updateDoc(userRef, {
       homeOrganizationId: user.uid,
       homeOrganizationName: userData.homeOrganizationName || userData.organizationName || userData.name || '',
+      workspaceMemberships: upsertWorkspaceMembership(userData.workspaceMemberships, {
+        organizationId: user.uid,
+        organizationName: userData.homeOrganizationName || userData.organizationName || userData.name || '',
+        role: userData.role || 'Admin',
+        workspaceRoleTitle: userData.workspaceRoleTitle || 'Workspace Owner',
+        invitedBy: '',
+      }),
       updatedAt: serverTimestamp(),
     });
   }
@@ -232,6 +261,13 @@ export async function syncWorkspaceAccessForUser(user) {
     if (!currentOrganizationId) {
       await updateDoc(userRef, {
         organizationId: user.uid,
+        workspaceMemberships: upsertWorkspaceMembership(userData.workspaceMemberships, {
+          organizationId: user.uid,
+          organizationName: userData.organizationName || userData.name || '',
+          role: 'Admin',
+          workspaceRoleTitle: userData.workspaceRoleTitle || 'Workspace Owner',
+          invitedBy: '',
+        }),
         updatedAt: serverTimestamp(),
       });
     }
@@ -245,6 +281,13 @@ export async function syncWorkspaceAccessForUser(user) {
       workspaceRoleTitle: userData.workspaceRoleTitle || 'Workspace Owner',
       organizationId: user.uid,
       organizationName: userData.organizationName || userData.name || '',
+      workspaceMemberships: upsertWorkspaceMembership(userData.workspaceMemberships, {
+        organizationId: user.uid,
+        organizationName: userData.organizationName || userData.name || '',
+        role: 'Admin',
+        workspaceRoleTitle: userData.workspaceRoleTitle || 'Workspace Owner',
+        invitedBy: '',
+      }),
       updatedAt: serverTimestamp(),
     });
 
@@ -363,8 +406,28 @@ export async function respondToWorkspaceInvite({
       organizationId,
       organizationName: invite.organizationName || userData.organizationName || '',
       invitedBy: invite.invitedBy || '',
+      workspaceMemberships: upsertWorkspaceMembership(userData.workspaceMemberships, {
+        organizationId: userData.organizationId || userUid,
+        organizationName: userData.organizationName || '',
+        role: userData.role || 'Member',
+        workspaceRoleTitle: userData.workspaceRoleTitle || 'Member',
+        invitedBy: userData.invitedBy || '',
+      }).concat(
+        upsertWorkspaceMembership([], {
+          organizationId,
+          organizationName: invite.organizationName || '',
+          role: 'Member',
+          workspaceRoleTitle,
+          invitedBy: invite.invitedBy || '',
+        })
+      ),
       homeOrganizationId: userData.homeOrganizationId || userUid,
       homeOrganizationName: userData.homeOrganizationName || userData.organizationName || userData.name || '',
+      linkedOrganizationId: '',
+      linkedOrganizationName: '',
+      linkedWorkspaceRoleTitle: '',
+      linkedRole: '',
+      linkedInvitedBy: '',
       updatedAt: serverTimestamp(),
     });
 
@@ -458,6 +521,62 @@ export async function loadWorkspaceMembers(organizationId, currentUserUid) {
   return members;
 }
 
+export function subscribeToWorkspaceMembers(organizationId, onMembersUpdate) {
+  if (!organizationId || !onMembersUpdate) {
+    return () => {};
+  }
+
+  const membersQuery = query(
+    collection(db, 'users'),
+    where('organizationId', '==', organizationId)
+  );
+
+  const unsubscribe = onSnapshot(membersQuery, (snapshot) => {
+    const members = snapshot.docs.map((userDoc) => ({
+      id: userDoc.id,
+      ...userDoc.data(),
+    }));
+
+    onMembersUpdate(members);
+  });
+
+  return unsubscribe;
+}
+
+export async function updateWorkspaceMemberRoleTitle({
+  memberUid,
+  organizationId,
+  workspaceRoleTitle,
+}) {
+  if (!memberUid || !organizationId) {
+    throw new Error('Member details are incomplete.');
+  }
+
+  const cleanedRoleTitle = (workspaceRoleTitle || '').trim();
+
+  if (!cleanedRoleTitle) {
+    throw new Error('Role title is required.');
+  }
+
+  const memberRef = doc(db, 'users', memberUid);
+  const memberSnapshot = await getDoc(memberRef);
+
+  if (!memberSnapshot.exists()) {
+    throw new Error('Member not found.');
+  }
+
+  const memberData = memberSnapshot.data();
+
+  if ((memberData.organizationId || '') !== organizationId) {
+    throw new Error('Member is not in this workspace.');
+  }
+
+  await updateDoc(memberRef, {
+    workspaceRoleTitle: cleanedRoleTitle,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export async function loadWorkspaceInvites(organizationId) {
   if (!organizationId) {
     return [];
@@ -501,6 +620,11 @@ export async function leaveCurrentWorkspace(userUid) {
     organizationId: homeOrganizationId,
     organizationName: homeOrganizationName,
     invitedBy: '',
+    linkedOrganizationId: '',
+    linkedOrganizationName: '',
+    linkedWorkspaceRoleTitle: '',
+    linkedRole: '',
+    linkedInvitedBy: '',
     updatedAt: serverTimestamp(),
   });
 
@@ -519,4 +643,242 @@ export async function leaveCurrentWorkspace(userUid) {
       },
     });
   }
+}
+
+export async function switchToPersonalWorkspace(userUid) {
+  if (!userUid) {
+    throw new Error('User not found.');
+  }
+
+  const userRef = doc(db, 'users', userUid);
+  const userSnapshot = await getDoc(userRef);
+
+  if (!userSnapshot.exists()) {
+    throw new Error('User profile was not found.');
+  }
+
+  const userData = userSnapshot.data();
+  const currentOrganizationId = userData.organizationId || userUid;
+
+  if (currentOrganizationId === userUid) {
+    throw new Error('You are already in your personal workspace.');
+  }
+
+  const homeOrganizationId = userData.homeOrganizationId || userUid;
+  const homeOrganizationName = userData.homeOrganizationName || userData.name || 'My Workspace';
+
+  await updateDoc(userRef, {
+    role: 'Admin',
+    workspaceRoleTitle: 'Workspace Owner',
+    organizationId: homeOrganizationId,
+    organizationName: homeOrganizationName,
+    invitedBy: '',
+    linkedOrganizationId: currentOrganizationId,
+    linkedOrganizationName: userData.organizationName || '',
+    linkedWorkspaceRoleTitle: userData.workspaceRoleTitle || 'Member',
+    linkedRole: userData.role || 'Member',
+    linkedInvitedBy: userData.invitedBy || '',
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function switchBackToLinkedWorkspace(userUid) {
+  if (!userUid) {
+    throw new Error('User not found.');
+  }
+
+  const userRef = doc(db, 'users', userUid);
+  const userSnapshot = await getDoc(userRef);
+
+  if (!userSnapshot.exists()) {
+    throw new Error('User profile was not found.');
+  }
+
+  const userData = userSnapshot.data();
+  const linkedOrganizationId = userData.linkedOrganizationId || '';
+
+  if (!linkedOrganizationId) {
+    throw new Error('No linked workspace found.');
+  }
+
+  await updateDoc(userRef, {
+    role: userData.linkedRole || 'Member',
+    workspaceRoleTitle: userData.linkedWorkspaceRoleTitle || 'Member',
+    organizationId: linkedOrganizationId,
+    organizationName: userData.linkedOrganizationName || userData.organizationName || '',
+    invitedBy: userData.linkedInvitedBy || userData.invitedBy || '',
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function switchToWorkspaceMembership(userUid, membership) {
+  if (!userUid || !membership?.organizationId) {
+    throw new Error('Workspace details are incomplete.');
+  }
+
+  const userRef = doc(db, 'users', userUid);
+  const userSnapshot = await getDoc(userRef);
+
+  if (!userSnapshot.exists()) {
+    throw new Error('User profile was not found.');
+  }
+
+  const userData = userSnapshot.data();
+  const currentOrganizationId = userData.organizationId || userUid;
+  const targetOrganizationId = membership.organizationId;
+
+  if (currentOrganizationId === targetOrganizationId) {
+    return;
+  }
+
+  await updateDoc(userRef, {
+    role: membership.role || userData.role || 'Member',
+    workspaceRoleTitle: membership.workspaceRoleTitle || membership.role || userData.workspaceRoleTitle || 'Member',
+    organizationId: targetOrganizationId,
+    organizationName: membership.organizationName || '',
+    invitedBy: membership.invitedBy || '',
+    linkedOrganizationId: currentOrganizationId,
+    linkedOrganizationName: userData.organizationName || '',
+    linkedWorkspaceRoleTitle: userData.workspaceRoleTitle || 'Member',
+    linkedRole: userData.role || 'Member',
+    linkedInvitedBy: userData.invitedBy || '',
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function removeWorkspaceMemberByAdmin({ adminUid, memberUid, organizationId }) {
+  if (!adminUid || !memberUid || !organizationId) {
+    throw new Error('Member removal details are incomplete.');
+  }
+
+  if (adminUid === memberUid) {
+    throw new Error('Use Leave Workspace to remove yourself from this workspace.');
+  }
+
+  if (memberUid === organizationId) {
+    throw new Error('Workspace owner cannot be removed.');
+  }
+
+  const adminRef = doc(db, 'users', adminUid);
+  const memberRef = doc(db, 'users', memberUid);
+
+  const [adminSnapshot, memberSnapshot] = await Promise.all([
+    getDoc(adminRef),
+    getDoc(memberRef),
+  ]);
+
+  if (!adminSnapshot.exists() || !memberSnapshot.exists()) {
+    throw new Error('User profile was not found.');
+  }
+
+  const adminData = adminSnapshot.data();
+  const memberData = memberSnapshot.data();
+
+  const adminOrganizationId = adminData.organizationId || adminUid;
+  const adminRole = (adminData.role || '').toLowerCase();
+
+  if (adminOrganizationId !== organizationId || adminRole !== 'admin') {
+    throw new Error('Only workspace admins can remove members.');
+  }
+
+  const memberOrganizationId = memberData.organizationId || memberUid;
+  if (memberOrganizationId !== organizationId) {
+    throw new Error('Member is not in this workspace.');
+  }
+
+  const homeOrganizationId = memberData.homeOrganizationId || memberUid;
+  const homeOrganizationName = memberData.homeOrganizationName || memberData.name || 'My Workspace';
+
+  await updateDoc(memberRef, {
+    role: 'Admin',
+    workspaceRoleTitle: 'Workspace Owner',
+    organizationId: homeOrganizationId,
+    organizationName: homeOrganizationName,
+    invitedBy: '',
+    updatedAt: serverTimestamp(),
+  });
+
+  await createNotification({
+    targetUserId: memberUid,
+    title: 'Removed from workspace',
+    message: 'You have been removed from a workspace and returned to your personal workspace.',
+    type: 'member_removed_workspace',
+    actorUid: adminUid,
+    organizationId,
+    metadata: {
+      memberUid,
+      memberEmail: normalizeEmail(memberData.email || ''),
+    },
+  });
+}
+
+export async function sendTeamMessage({ senderUid, senderName, senderEmail, organizationId, message }) {
+  if (!organizationId || !senderUid || !message?.trim()) {
+    throw new Error('Message details are incomplete.');
+  }
+
+  if (message.length > 5000) {
+    throw new Error('Message is too long (max 5000 characters).');
+  }
+
+  return addDoc(collection(db, 'teamMessages'), {
+    organizationId,
+    senderUid,
+    senderName: senderName || 'Unknown',
+    senderEmail: normalizeEmail(senderEmail || ''),
+    message: message.trim(),
+    createdAt: serverTimestamp(),
+  });
+}
+
+export async function loadTeamMessagesOnce(organizationId) {
+  if (!organizationId) {
+    return [];
+  }
+
+  const messageQuery = query(
+    collection(db, 'teamMessages'),
+    where('organizationId', '==', organizationId)
+  );
+
+  const snapshot = await getDocs(messageQuery);
+
+  return snapshot.docs
+    .map((messageDoc) => ({
+      id: messageDoc.id,
+      ...messageDoc.data(),
+    }))
+    .sort((left, right) => {
+      const leftSeconds = left.createdAt?.seconds || 0;
+      const rightSeconds = right.createdAt?.seconds || 0;
+      return leftSeconds - rightSeconds;
+    });
+}
+
+export function subscribeToTeamMessages(organizationId, onMessagesUpdate) {
+  if (!organizationId || !onMessagesUpdate) {
+    return () => {};
+  }
+
+  const messageQuery = query(
+    collection(db, 'teamMessages'),
+    where('organizationId', '==', organizationId)
+  );
+
+  const unsubscribe = onSnapshot(messageQuery, (snapshot) => {
+    const messages = snapshot.docs
+      .map((messageDoc) => ({
+        id: messageDoc.id,
+        ...messageDoc.data(),
+      }))
+      .sort((left, right) => {
+        const leftSeconds = left.createdAt?.seconds || 0;
+        const rightSeconds = right.createdAt?.seconds || 0;
+        return leftSeconds - rightSeconds;
+      });
+
+    onMessagesUpdate(messages);
+  });
+
+  return unsubscribe;
 }

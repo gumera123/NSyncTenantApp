@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,9 +9,12 @@ import {
   TextInput,
   ScrollView,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { signOut } from 'firebase/auth';
 import { auth, db } from '../../firebaseConfig';
@@ -20,6 +23,11 @@ import { uploadImageToCloudinary } from '../utils/cloudinaryHelper';
 import { validatePhilippineMobileNumber, getPhilippineMobileErrorMessage } from '../utils/contactValidation';
 import {
   leaveCurrentWorkspace,
+  removeWorkspaceMemberByAdmin,
+  subscribeToWorkspaceMembers,
+  switchToPersonalWorkspace,
+  switchToWorkspaceMembership,
+  updateWorkspaceMemberRoleTitle,
 } from '../utils/workspaceInvite';
 
 export default function ProfileScreen() {
@@ -31,6 +39,13 @@ export default function ProfileScreen() {
   const [uploading, setUploading] = useState(false);
   const [contactError, setContactError] = useState('');
   const [leavingWorkspace, setLeavingWorkspace] = useState(false);
+  const [workspaceMembers, setWorkspaceMembers] = useState([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [updatingMemberId, setUpdatingMemberId] = useState('');
+  const [memberRoleDrafts, setMemberRoleDrafts] = useState({});
+  const [removingMemberId, setRemovingMemberId] = useState('');
+  const [switchingWorkspace, setSwitchingWorkspace] = useState(false);
+  const [switchingWorkspaceId, setSwitchingWorkspaceId] = useState('');
 
   const [formData, setFormData] = useState({
     name: '',
@@ -45,39 +60,204 @@ export default function ProfileScreen() {
   const userEmail = auth.currentUser?.email || 'No email available';
   const isAdmin = (userData?.role || '').toLowerCase() === 'admin';
   const organizationId = userData?.organizationId || auth.currentUser?.uid || '';
-  const canLeaveWorkspace = !isAdmin && organizationId && organizationId !== auth.currentUser?.uid;
+  const linkedOrganizationId = userData?.linkedOrganizationId || '';
+  const canLeaveWorkspace = organizationId && organizationId !== auth.currentUser?.uid;
+  const canSwitchToPersonalWorkspace = organizationId && organizationId !== auth.currentUser?.uid;
+
+  const workspaceMemberships = (() => {
+    const memberships = Array.isArray(userData?.workspaceMemberships) ? userData.workspaceMemberships.filter(Boolean) : [];
+    const fallbackMemberships = [
+      {
+        organizationId: organizationId || auth.currentUser?.uid || '',
+        organizationName: userData?.organizationName || userData?.homeOrganizationName || userData?.name || '',
+        role: userData?.role || 'Member',
+        workspaceRoleTitle: userData?.workspaceRoleTitle || 'Member',
+        invitedBy: userData?.invitedBy || '',
+      },
+    ];
+
+    if (linkedOrganizationId) {
+      fallbackMemberships.push({
+        organizationId: linkedOrganizationId,
+        organizationName: userData?.linkedOrganizationName || '',
+        role: userData?.linkedRole || 'Member',
+        workspaceRoleTitle: userData?.linkedWorkspaceRoleTitle || 'Member',
+        invitedBy: userData?.linkedInvitedBy || '',
+      });
+    }
+
+    const mergedMemberships = [...memberships, ...fallbackMemberships].filter((membership, index, array) =>
+      membership.organizationId && array.findIndex((item) => item.organizationId === membership.organizationId) === index
+    );
+
+    return mergedMemberships.sort((left, right) => {
+      if (left.organizationId === organizationId) {
+        return -1;
+      }
+
+      if (right.organizationId === organizationId) {
+        return 1;
+      }
+
+      return (left.organizationName || left.workspaceRoleTitle || '').localeCompare(right.organizationName || right.workspaceRoleTitle || '');
+    });
+  })();
+
+  const fetchUserData = useCallback(async () => {
+    if (!auth.currentUser) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        setUserData(data);
+        setFormData((currentFormData) => ({
+          ...currentFormData,
+          name: data.name || '',
+          contactNumber: data.contactNumber || '',
+          organizationName: data.organizationName || '',
+          role: data.role || '',
+          workspaceRoleTitle: data.workspaceRoleTitle || '',
+          address: data.address || '',
+          description: data.description || '',
+        }));
+      }
+    } catch (error) {
+      console.log('Error fetching user data:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchUserData = async () => {
-      if (!auth.currentUser) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-        if (userDoc.exists()) {
-          const data = userDoc.data();
-          setUserData(data);
-          setFormData({
-            name: data.name || '',
-            contactNumber: data.contactNumber || '',
-            organizationName: data.organizationName || '',
-            role: data.role || '',
-            workspaceRoleTitle: data.workspaceRoleTitle || '',
-            address: data.address || '',
-            description: data.description || '',
-          });
-        }
-      } catch (error) {
-        console.log('Error fetching user data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchUserData();
-  }, []);
+  }, [fetchUserData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchUserData();
+    }, [fetchUserData])
+  );
+
+  useEffect(() => {
+    if (!auth.currentUser?.uid || !isAdmin || !organizationId) {
+      setWorkspaceMembers([]);
+      setMembersLoading(false);
+      setMemberRoleDrafts({});
+      return;
+    }
+
+    setMembersLoading(true);
+
+    const unsubscribe = subscribeToWorkspaceMembers(organizationId, (members) => {
+      const sortedMembers = [...members].sort((left, right) => {
+        if (left.id === auth.currentUser.uid) {
+          return -1;
+        }
+
+        if (right.id === auth.currentUser.uid) {
+          return 1;
+        }
+
+        const leftName = (left.name || left.email || '').toLowerCase();
+        const rightName = (right.name || right.email || '').toLowerCase();
+        return leftName.localeCompare(rightName);
+      });
+
+      setWorkspaceMembers(sortedMembers);
+      setMemberRoleDrafts((currentDrafts) => {
+        const nextDrafts = { ...currentDrafts };
+        const currentMemberIds = new Set(sortedMembers.map((member) => member.id));
+
+        sortedMembers.forEach((member) => {
+          if (typeof nextDrafts[member.id] !== 'string') {
+            nextDrafts[member.id] = member.workspaceRoleTitle || member.role || 'Member';
+          }
+        });
+
+        Object.keys(nextDrafts).forEach((memberId) => {
+          if (!currentMemberIds.has(memberId)) {
+            delete nextDrafts[memberId];
+          }
+        });
+
+        return nextDrafts;
+      });
+      setMembersLoading(false);
+    });
+
+    return unsubscribe;
+  }, [isAdmin, organizationId]);
+
+  const handleAssignMemberRole = useCallback(async (memberUid) => {
+    if (!organizationId || !isAdmin) {
+      Alert.alert('Admin Only', 'Only admins can update workspace member roles.');
+      return;
+    }
+
+    const member = workspaceMembers.find((currentMember) => currentMember.id === memberUid);
+    const defaultRoleTitle = member?.workspaceRoleTitle || member?.role || 'Member';
+    const roleTitle = (memberRoleDrafts[memberUid] ?? defaultRoleTitle).trim();
+
+    if (!roleTitle) {
+      Alert.alert('Validation Error', 'Role title cannot be empty.');
+      return;
+    }
+
+    try {
+      setUpdatingMemberId(memberUid);
+      await updateWorkspaceMemberRoleTitle({
+        memberUid,
+        organizationId,
+        workspaceRoleTitle: roleTitle,
+      });
+    } catch (error) {
+      console.log('Error updating workspace role:', error);
+      Alert.alert('Error', error.message || 'Failed to update member role.');
+    } finally {
+      setUpdatingMemberId('');
+    }
+  }, [organizationId, isAdmin, memberRoleDrafts, workspaceMembers]);
+
+  const handleRemoveMember = useCallback((member) => {
+    if (!auth.currentUser?.uid || !organizationId || !isAdmin) {
+      Alert.alert('Admin Only', 'Only admins can remove members.');
+      return;
+    }
+
+    const memberLabel = member?.name || member?.email || 'this member';
+
+    Alert.alert(
+      'Remove Member',
+      `Are you sure you want to remove ${memberLabel} from this workspace?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setRemovingMemberId(member.id);
+              await removeWorkspaceMemberByAdmin({
+                adminUid: auth.currentUser.uid,
+                memberUid: member.id,
+                organizationId,
+              });
+              Alert.alert('Success', `${memberLabel} was removed from the workspace.`);
+            } catch (error) {
+              console.log('Error removing workspace member:', error);
+              Alert.alert('Error', error.message || 'Failed to remove member.');
+            } finally {
+              setRemovingMemberId('');
+            }
+          },
+        },
+      ]
+    );
+  }, [isAdmin, organizationId]);
 
   const pickImage = async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -188,13 +368,26 @@ export default function ProfileScreen() {
     setContactError('');
   };
 
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.log('Error signing out:', error);
-      Alert.alert('Error', 'Failed to sign out');
-    }
+  const handleLogout = () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to log out of this account?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOut(auth);
+            } catch (error) {
+              console.log('Error signing out:', error);
+              Alert.alert('Error', 'Failed to sign out');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleLeaveWorkspace = async () => {
@@ -204,11 +397,11 @@ export default function ProfileScreen() {
 
     Alert.alert(
       'Leave Workspace',
-      'Are you sure you want to leave this workspace? You will return to your own workspace.',
+      'Do you really want to leave this workspace? You will lose access to this workspace and return to your personal workspace.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Leave',
+          text: 'Yes, Leave',
           style: 'destructive',
           onPress: async () => {
             try {
@@ -240,6 +433,66 @@ export default function ProfileScreen() {
     );
   };
 
+  const handleSwitchToPersonalWorkspace = () => {
+    if (!auth.currentUser || !canSwitchToPersonalWorkspace) {
+      return;
+    }
+
+    Alert.alert(
+      'Switch Workspace',
+      'Switch to your personal workspace now? You can switch back later without leaving this workspace.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Switch',
+          onPress: async () => {
+            try {
+              setSwitchingWorkspace(true);
+              await switchToPersonalWorkspace(auth.currentUser.uid);
+              await fetchUserData();
+              Alert.alert('Success', 'You are now in your personal workspace.');
+            } catch (error) {
+              console.log('Error switching to personal workspace:', error);
+              Alert.alert('Error', error.message || 'Failed to switch workspace.');
+            } finally {
+              setSwitchingWorkspace(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleSwitchToWorkspaceMembership = (membership) => {
+    if (!auth.currentUser || !membership?.organizationId) {
+      return;
+    }
+
+    Alert.alert(
+      'Switch Workspace',
+      `Switch to ${membership.organizationName || membership.workspaceRoleTitle || 'this workspace'}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Switch',
+          onPress: async () => {
+            try {
+              setSwitchingWorkspaceId(membership.organizationId);
+              await switchToWorkspaceMembership(auth.currentUser.uid, membership);
+              await fetchUserData();
+              Alert.alert('Success', 'Workspace switched successfully.');
+            } catch (error) {
+              console.log('Error switching workspace:', error);
+              Alert.alert('Error', error.message || 'Failed to switch workspace.');
+            } finally {
+              setSwitchingWorkspaceId('');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -255,9 +508,14 @@ export default function ProfileScreen() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Text style={styles.title}>Edit Profile</Text>
-          <Text style={styles.subtitle}>Update your account details.</Text>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.keyboardAvoidingView}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        >
+          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            <Text style={styles.title}>Edit Profile</Text>
+            <Text style={styles.subtitle}>Update your account details.</Text>
 
           <View style={styles.card}>
             <Text style={styles.label}>Full Name *</Text>
@@ -337,7 +595,8 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </ScrollView>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
@@ -345,7 +604,12 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
-      <ScrollView contentContainerStyle={styles.content}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardAvoidingView}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>Profile</Text>
         <Text style={styles.subtitle}>Your account summary.</Text>
 
@@ -398,21 +662,153 @@ export default function ProfileScreen() {
             <Text style={styles.primaryButtonText}>Edit Profile</Text>
           </TouchableOpacity>
 
-          {canLeaveWorkspace ? (
+          {workspaceMemberships.length > 0 ? (
+            <View style={styles.workspaceSwitcherCard}>
+              <Text style={styles.workspaceSwitcherTitle}>Workspace Switcher</Text>
+              <Text style={styles.workspaceSwitcherSubtitle}>Switch between the workspaces you belong to.</Text>
+
+              {workspaceMemberships.map((membership) => {
+                const isActiveWorkspace = membership.organizationId === organizationId;
+
+                return (
+                  <View key={membership.organizationId} style={styles.workspaceSwitcherItem}>
+                    <View style={styles.workspaceSwitcherInfo}>
+                      <Text style={styles.workspaceSwitcherName} numberOfLines={1}>
+                        {membership.organizationName || membership.workspaceRoleTitle || 'Workspace'}
+                      </Text>
+                      <Text style={styles.workspaceSwitcherMeta} numberOfLines={1}>
+                        {membership.workspaceRoleTitle || membership.role || 'Member'}
+                      </Text>
+                    </View>
+
+                    {isActiveWorkspace ? (
+                      <View style={styles.workspaceActiveBadge}>
+                        <Text style={styles.workspaceActiveBadgeText}>Active</Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={[
+                          styles.workspaceSwitchButton,
+                          switchingWorkspaceId === membership.organizationId && styles.buttonDisabled,
+                        ]}
+                        onPress={() => handleSwitchToWorkspaceMembership(membership)}
+                        disabled={switchingWorkspaceId === membership.organizationId}
+                      >
+                        <Text style={styles.workspaceSwitchButtonText}>
+                          {switchingWorkspaceId === membership.organizationId ? 'Switching...' : 'Switch'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+
+          {canSwitchToPersonalWorkspace ? (
             <TouchableOpacity
-              style={[styles.leaveWorkspaceButton, leavingWorkspace && styles.buttonDisabled]}
-              onPress={handleLeaveWorkspace}
-              disabled={leavingWorkspace}
+              style={[styles.switchWorkspaceButton, switchingWorkspace && styles.buttonDisabled]}
+              onPress={handleSwitchToPersonalWorkspace}
+              disabled={switchingWorkspace}
             >
-              <Text style={styles.leaveWorkspaceText}>{leavingWorkspace ? 'Leaving...' : 'Leave Workspace'}</Text>
+              <Text style={styles.switchWorkspaceText}>{switchingWorkspace ? 'Switching...' : 'Switch to Personal Workspace'}</Text>
             </TouchableOpacity>
+          ) : null}
+
+          {canLeaveWorkspace ? (
+            <>
+              <TouchableOpacity
+                style={[styles.leaveWorkspaceButton, leavingWorkspace && styles.buttonDisabled]}
+                onPress={handleLeaveWorkspace}
+                disabled={leavingWorkspace}
+              >
+                <Text style={styles.leaveWorkspaceText}>{leavingWorkspace ? 'Leaving...' : 'Leave Workspace'}</Text>
+              </TouchableOpacity>
+              <Text style={styles.leaveWorkspaceHint}>Leaving will return you to your personal workspace.</Text>
+            </>
           ) : null}
 
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
             <Text style={styles.logoutText}>Logout</Text>
           </TouchableOpacity>
         </View>
+
+        {isAdmin && workspaceMembers.length > 0 ? (
+          <View style={styles.membersCard}>
+            <Text style={styles.membersTitle}>Current Workspace Members</Text>
+            <Text style={styles.membersSubtitle}>Real-time list. Members disappear here immediately after leaving.</Text>
+
+            {membersLoading ? (
+              <View style={styles.membersLoadingWrap}>
+                <ActivityIndicator size="small" color="#2563eb" />
+              </View>
+            ) : (
+              workspaceMembers.map((member) => {
+                const memberDisplayName = member.name || member.email || 'Unnamed Member';
+                const defaultRoleTitle = member.workspaceRoleTitle || member.role || 'Member';
+                const roleDraft = memberRoleDrafts[member.id] ?? defaultRoleTitle;
+                const isCurrentUser = member.id === auth.currentUser?.uid;
+
+                return (
+                  <View key={member.id} style={styles.memberRow}>
+                    <View style={styles.memberTopRow}>
+                      <View style={styles.memberInfoWrap}>
+                        <Text style={styles.memberName}>{memberDisplayName}{isCurrentUser ? ' (You)' : ''}</Text>
+                        <Text style={styles.memberMeta}>{member.email || 'No email'}</Text>
+                      </View>
+
+                      {!isCurrentUser ? (
+                        <TouchableOpacity
+                          style={[
+                            styles.removeMemberButton,
+                            removingMemberId === member.id && styles.buttonDisabled,
+                          ]}
+                          onPress={() => handleRemoveMember(member)}
+                          disabled={removingMemberId === member.id}
+                        >
+                          <Text style={styles.removeMemberButtonText}>
+                            {removingMemberId === member.id ? 'Removing...' : 'Remove'}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+
+                    <View style={styles.memberRoleRow}>
+                      <TextInput
+                        style={styles.memberRoleInput}
+                        placeholder="Type role title"
+                        placeholderTextColor="#94a3b8"
+                        value={roleDraft}
+                        onChangeText={(text) =>
+                          setMemberRoleDrafts((currentDrafts) => ({
+                            ...currentDrafts,
+                            [member.id]: text,
+                          }))
+                        }
+                        editable={updatingMemberId !== member.id && removingMemberId !== member.id}
+                      />
+
+                      <TouchableOpacity
+                        style={[
+                          styles.memberRoleSaveButton,
+                          (updatingMemberId === member.id || !roleDraft.trim() || removingMemberId === member.id) && styles.memberRoleSaveButtonDisabled,
+                        ]}
+                        onPress={() => handleAssignMemberRole(member.id)}
+                        disabled={updatingMemberId === member.id || !roleDraft.trim() || removingMemberId === member.id}
+                      >
+                        <Text style={styles.memberRoleSaveButtonText}>
+                          {updatingMemberId === member.id ? 'Saving...' : 'Save'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </View>
+        ) : null}
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -422,6 +818,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f4f6f8',
   },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
   center: {
     flex: 1,
     justifyContent: 'center',
@@ -429,7 +828,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 120,
+    paddingBottom: 200,
   },
   title: {
     fontSize: 28,
@@ -554,6 +953,76 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
   },
+  workspaceSwitcherCard: {
+    marginTop: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 14,
+  },
+  workspaceSwitcherTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  workspaceSwitcherSubtitle: {
+    marginTop: 4,
+    marginBottom: 10,
+    color: '#64748b',
+    fontSize: 12,
+  },
+  workspaceSwitcherItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+    marginBottom: 8,
+  },
+  workspaceSwitcherInfo: {
+    flex: 1,
+  },
+  workspaceSwitcherName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  workspaceSwitcherMeta: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#64748b',
+  },
+  workspaceActiveBadge: {
+    height: 32,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: '#dcfce7',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  workspaceActiveBadgeText: {
+    color: '#166534',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  workspaceSwitchButton: {
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  workspaceSwitchButtonText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   secondaryButton: {
     height: 44,
     borderRadius: 10,
@@ -607,8 +1076,129 @@ const styles = StyleSheet.create({
     color: '#b45309',
     fontWeight: '700',
   },
+  switchWorkspaceButton: {
+    height: 46,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    backgroundColor: '#eff6ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  switchWorkspaceText: {
+    color: '#1d4ed8',
+    fontWeight: '700',
+  },
+  leaveWorkspaceHint: {
+    marginTop: 6,
+    color: '#92400e',
+    fontSize: 12,
+  },
   logoutText: {
     color: '#dc2626',
     fontWeight: '700',
+  },
+  membersCard: {
+    marginTop: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 14,
+  },
+  membersTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  membersSubtitle: {
+    marginTop: 4,
+    color: '#64748b',
+    fontSize: 12,
+    marginBottom: 10,
+  },
+  membersLoadingWrap: {
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyMembersText: {
+    color: '#64748b',
+    fontSize: 13,
+  },
+  memberRow: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
+    backgroundColor: '#f8fafc',
+  },
+  memberInfoWrap: {
+    flex: 1,
+    marginRight: 8,
+    marginBottom: 6,
+  },
+  memberTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 6,
+  },
+  removeMemberButton: {
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    backgroundColor: '#fef2f2',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    height: 34,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  removeMemberButtonText: {
+    color: '#dc2626',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  memberName: {
+    color: '#0f172a',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  memberMeta: {
+    color: '#64748b',
+    marginTop: 2,
+    fontSize: 12,
+  },
+  memberRoleRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  memberRoleInput: {
+    flex: 1,
+    height: 42,
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 10,
+    color: '#0f172a',
+  },
+  memberRoleSaveButton: {
+    height: 42,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  memberRoleSaveButtonDisabled: {
+    opacity: 0.6,
+  },
+  memberRoleSaveButtonText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 12,
   },
 });

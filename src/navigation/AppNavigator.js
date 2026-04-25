@@ -13,6 +13,7 @@ import AddBoardScreen from '../screens/AddBoardScreen';
 import TasksScreen from '../screens/TasksScreen';
 import AddTaskScreen from '../screens/AddTaskScreen';
 import EditTaskScreen from '../screens/EditTaskScreen';
+import ReportsScreen from '../screens/ReportsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import EditBoardScreen from '../screens/EditBoardScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
@@ -58,6 +59,14 @@ function NotificationsStack() {
   );
 }
 
+function ReportsStack() {
+  return (
+    <Stack.Navigator screenOptions={stackDefaults}>
+      <Stack.Screen name="Reports" component={ReportsScreen} options={{ headerShown: false }} />
+    </Stack.Navigator>
+  );
+}
+
 function ProfileStack() {
   return (
     <Stack.Navigator screenOptions={stackDefaults}>
@@ -66,16 +75,18 @@ function ProfileStack() {
   );
 }
 
-function CustomTabBar({ state, descriptors, navigation, unreadCount }) {
+function CustomTabBar({ state, descriptors, navigation, unreadCount, hideAddBoardButton }) {
   const handleAddBoard = () => {
     navigation.navigate('HomeTab', { screen: 'AddBoard' });
   };
 
   return (
     <View pointerEvents="box-none" style={styles.tabBarOverlay}>
-      <TouchableOpacity activeOpacity={0.92} style={styles.floatingAddButton} onPress={handleAddBoard}>
-        <Ionicons name="add" size={26} color="#ffffff" />
-      </TouchableOpacity>
+      {hideAddBoardButton ? null : (
+        <TouchableOpacity activeOpacity={0.92} style={styles.floatingAddButton} onPress={handleAddBoard}>
+          <Ionicons name="add" size={26} color="#ffffff" />
+        </TouchableOpacity>
+      )}
 
       <View style={styles.tabBar}>
         {state.routes.map((route, index) => {
@@ -86,6 +97,8 @@ function CustomTabBar({ state, descriptors, navigation, unreadCount }) {
           let iconName = 'ellipse-outline';
           if (route.name === 'HomeTab') {
             iconName = isFocused ? 'home' : 'home-outline';
+          } else if (route.name === 'ReportsTab') {
+            iconName = isFocused ? 'bar-chart' : 'bar-chart-outline';
           } else if (route.name === 'NotificationsTab') {
             iconName = isFocused ? 'mail' : 'mail-outline';
           } else if (route.name === 'ProfileTab') {
@@ -137,7 +150,8 @@ function CustomTabBar({ state, descriptors, navigation, unreadCount }) {
 function MainTabsWithListener() {
   const [activeRouteName, setActiveRouteName] = useState('Boards');
   const [unreadCount, setUnreadCount] = useState(0);
-  const hiddenTabRoutes = useMemo(() => ['Tasks', 'AddTask', 'EditTask', 'EditBoard'], []);
+  const hiddenTabRoutes = useMemo(() => ['Tasks', 'AddTask', 'EditTask', 'EditBoard', 'TeamChat'], []);
+  const hiddenAddBoardRoutes = useMemo(() => ['Reports', 'Notifications', 'Profile'], []);
 
   const refreshUnreadNotifications = useCallback(async () => {
     if (!auth.currentUser) {
@@ -158,13 +172,22 @@ function MainTabsWithListener() {
   }, [refreshUnreadNotifications, activeRouteName]);
 
   const shouldHideTabBar = hiddenTabRoutes.includes(activeRouteName);
+  const shouldHideAddBoardButton = hiddenAddBoardRoutes.includes(activeRouteName);
 
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
       }}
-      tabBar={(props) => (shouldHideTabBar ? null : <CustomTabBar {...props} unreadCount={unreadCount} />)}
+      tabBar={(props) => (
+        shouldHideTabBar ? null : (
+          <CustomTabBar
+            {...props}
+            unreadCount={unreadCount}
+            hideAddBoardButton={shouldHideAddBoardButton}
+          />
+        )
+      )}
     >
       <Tab.Screen
         name="HomeTab"
@@ -192,17 +215,46 @@ function MainTabsWithListener() {
         component={NotificationsStack}
         listeners={({ route }) => ({
           state: () => {
-            const nestedRouteName = route.state?.routes?.[route.state.index ?? 0]?.name ?? 'Notifications';
+            const activeNestedRoute = route.state?.routes?.[route.state.index ?? 0];
+            const nestedRouteName =
+              activeNestedRoute?.params?.activeTab === 'teamChat'
+                ? 'TeamChat'
+                : activeNestedRoute?.name ?? 'Notifications';
             setActiveRouteName(nestedRouteName);
           },
           focus: () => {
-            const nestedRouteName = route.state?.routes?.[route.state.index ?? 0]?.name ?? 'Notifications';
+            const activeNestedRoute = route.state?.routes?.[route.state.index ?? 0];
+            const nestedRouteName =
+              activeNestedRoute?.params?.activeTab === 'teamChat'
+                ? 'TeamChat'
+                : activeNestedRoute?.name ?? 'Notifications';
+            setActiveRouteName(nestedRouteName);
+            refreshUnreadNotifications();
+          },
+          tabPress: () => {
+            setActiveRouteName('Notifications');
+          },
+        })}
+        options={{
+          tabBarLabel: 'Inbox',
+        }}
+      />
+      <Tab.Screen
+        name="ReportsTab"
+        component={ReportsStack}
+        listeners={({ route }) => ({
+          state: () => {
+            const nestedRouteName = route.state?.routes?.[route.state.index ?? 0]?.name ?? 'Reports';
+            setActiveRouteName(nestedRouteName);
+          },
+          focus: () => {
+            const nestedRouteName = route.state?.routes?.[route.state.index ?? 0]?.name ?? 'Reports';
             setActiveRouteName(nestedRouteName);
             refreshUnreadNotifications();
           },
         })}
         options={{
-          tabBarLabel: 'Inbox',
+          tabBarLabel: 'Reports',
         }}
       />
       <Tab.Screen

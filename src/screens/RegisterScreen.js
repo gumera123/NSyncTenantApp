@@ -58,12 +58,20 @@ export default function RegisterScreen({ navigation }) {
         organizationName: name.trim(),
         homeOrganizationId: user.uid,
         homeOrganizationName: name.trim(),
+        workspaceMemberships: [
+          {
+            organizationId: user.uid,
+            organizationName: name.trim(),
+            role: 'Admin',
+            workspaceRoleTitle: 'Workspace Owner',
+            invitedBy: '',
+          },
+        ],
         invitedBy: '',
         createdAt: serverTimestamp(),
       });
 
-      Alert.alert('Success', 'Account created successfully.');
-      navigation.navigate('Login');
+      Alert.alert('Success', 'Account created successfully. You are now signed in.');
     } catch (error) {
       Alert.alert('Registration Failed', error.message);
     } finally {

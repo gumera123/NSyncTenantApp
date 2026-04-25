@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
 import { auth } from '../../firebaseConfig';
@@ -22,13 +22,16 @@ import {
   normalizeEmail,
   respondToWorkspaceInvite,
 } from '../utils/workspaceInvite';
+import TeamChatScreen from './TeamChatScreen';
 
 export default function NotificationsScreen() {
+  const navigation = useNavigation();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [inviteResponseLoadingId, setInviteResponseLoadingId] = useState('');
   const [deletingNotificationId, setDeletingNotificationId] = useState('');
   const [clearingAll, setClearingAll] = useState(false);
+  const [activeTab, setActiveTab] = useState('notifications');
 
   const currentUserEmail = normalizeEmail(auth.currentUser?.email || '');
 
@@ -96,6 +99,10 @@ export default function NotificationsScreen() {
       fetchNotifications();
     }, [fetchNotifications])
   );
+
+  useEffect(() => {
+    navigation.setParams({ activeTab });
+  }, [navigation, activeTab]);
 
   const handleInvitationResponse = async (notification, response) => {
     if (!auth.currentUser?.uid) {
@@ -265,37 +272,76 @@ export default function NotificationsScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
-      <View style={styles.container}>
-        <View style={styles.headerRow}>
-          <View style={styles.headerTextWrap}>
-            <Text style={styles.pageTitle}>Notifications</Text>
-            <Text style={styles.pageSubtitle}>Workspace updates, invites, and activity.</Text>
-          </View>
-          {notifications.length > 0 ? (
-            <TouchableOpacity
-              style={[styles.clearAllButton, clearingAll && styles.buttonDisabled]}
-              onPress={handleClearAllNotifications}
-              disabled={clearingAll}
-            >
-              <Text style={styles.clearAllButtonText}>{clearingAll ? 'Clearing...' : 'Clear all'}</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
 
-        <FlatList
-          data={notifications}
-          keyExtractor={(item) => item.id}
-          renderItem={renderNotification}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={notifications.length === 0 ? styles.emptyContainer : styles.listContent}
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyTitle}>No notifications yet</Text>
-              <Text style={styles.emptySub}>New activity and invitations will show up here.</Text>
+      {activeTab === 'teamChat' ? (
+        <>
+          <View style={styles.backHeaderContainer}>
+            <TouchableOpacity
+              onPress={() => setActiveTab('notifications')}
+              activeOpacity={0.7}
+              style={styles.backButton}
+            >
+              <Ionicons name="chevron-back" size={24} color="#2563eb" />
+            </TouchableOpacity>
+            <Text style={styles.backHeaderTitle}>Team Chat</Text>
+            <View style={styles.backButtonPlaceholder} />
+          </View>
+          <TeamChatScreen />
+        </>
+      ) : (
+        <View style={styles.notificationsWrapper}>
+          <View style={styles.tabRow}>
+            <TouchableOpacity
+              style={[styles.tabButton, activeTab === 'notifications' ? styles.tabButtonActive : null]}
+              onPress={() => setActiveTab('notifications')}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="notifications" size={18} color={activeTab === 'notifications' ? '#ffffff' : '#64748b'} />
+              <Text style={[styles.tabButtonText, activeTab === 'notifications' ? styles.tabButtonTextActive : null]}>Notifications</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tabButton, activeTab === 'teamChat' ? styles.tabButtonActive : null]}
+              onPress={() => setActiveTab('teamChat')}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="chatbubble-outline" size={18} color={activeTab === 'teamChat' ? '#ffffff' : '#64748b'} />
+              <Text style={[styles.tabButtonText, activeTab === 'teamChat' ? styles.tabButtonTextActive : null]}>Team Chat</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.container}>
+            <View style={styles.headerRow}>
+              <View style={styles.headerTextWrap}>
+                <Text style={styles.pageTitle}>Notifications</Text>
+                <Text style={styles.pageSubtitle}>Workspace updates, invites, and activity.</Text>
+              </View>
+              {notifications.length > 0 ? (
+                <TouchableOpacity
+                  style={[styles.clearAllButton, clearingAll && styles.buttonDisabled]}
+                  onPress={handleClearAllNotifications}
+                  disabled={clearingAll}
+                >
+                  <Text style={styles.clearAllButtonText}>{clearingAll ? 'Clearing...' : 'Clear all'}</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
-          }
-        />
-      </View>
+
+            <FlatList
+              data={notifications}
+              keyExtractor={(item) => item.id}
+              renderItem={renderNotification}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={notifications.length === 0 ? styles.emptyContainer : styles.listContent}
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyTitle}>No notifications yet</Text>
+                  <Text style={styles.emptySub}>New activity and invitations will show up here.</Text>
+                </View>
+              }
+            />
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -473,5 +519,62 @@ const styles = StyleSheet.create({
     marginTop: 12,
     color: '#94a3b8',
     fontSize: 12,
+  },
+  tabRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+  },
+  tabButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+  },
+  tabButtonActive: {
+    backgroundColor: '#111827',
+    borderColor: '#111827',
+  },
+  tabButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  tabButtonTextActive: {
+    color: '#ffffff',
+  },
+  notificationsWrapper: {
+    flex: 1,
+  },
+  backHeaderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+  },
+  backButton: {
+    padding: 6,
+  },
+  backHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  backButtonPlaceholder: {
+    width: 36,
   },
 });
