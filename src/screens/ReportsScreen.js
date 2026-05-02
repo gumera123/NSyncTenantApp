@@ -8,17 +8,61 @@ import {
   RefreshControl,
   TouchableOpacity,
   Alert,
+  Platform,
+  Share,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
+import ReactNativeBlobUtil from 'react-native-blob-util';
+// Using React Native's Share API as a safer fallback to avoid runtime
+// native-version mismatches with Expo's sharing native module.
 import { auth, db } from '../../firebaseConfig';
 import { parseDateString } from '../utils/dateHelper';
+import { AUTH_UI_PALETTE as PALETTE } from '../config/uiTokens';
 
 const ALL_BOARDS = 'ALL_BOARDS';
+
+function formatReportFileName(boardName) {
+  const safeBoardName = (boardName || 'dashboard-report')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    || 'dashboard-report';
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return `${safeBoardName}-report-${timestamp}.pdf`;
+}
+
+async function persistReportPdf(sourceUri, boardName) {
+  try {
+    const destinationFileName = formatReportFileName(boardName);
+
+    if (Platform.OS === 'android') {
+      const mediaStoreUri = await ReactNativeBlobUtil.MediaCollection.copyToMediaStore(
+        {
+          name: destinationFileName,
+          parentFolder: 'NSync-Reports',
+          mimeType: 'application/pdf',
+        },
+        'Download',
+        sourceUri.replace(/^file:\/\//, '')
+      );
+
+      console.log(`PDF persisted to Android Downloads: ${mediaStoreUri}`);
+      return mediaStoreUri;
+    }
+
+    console.log(`PDF generated locally: ${sourceUri}`);
+    return sourceUri;
+  } catch (error) {
+    console.error('Error persisting PDF to Android Downloads:', error);
+    // Return the source URI as fallback if copy fails
+    return sourceUri;
+  }
+}
 
 function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -415,25 +459,36 @@ export default function ReportsScreen() {
         metrics,
       });
 
-      const { uri } = await Print.printToFileAsync({
-        html,
-        base64: false,
-      });
+      const { uri: tempUri } = await Print.printToFileAsync({ html, base64: false });
+      console.log('PDF generated at temp location:', tempUri);
 
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(uri, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Share Dashboard Report',
-          UTI: '.pdf',
+      const savedUri = await persistReportPdf(tempUri, selectedBoardName);
+      console.log('PDF persisted to:', savedUri);
+
+      // React Native Share accepts either file:// or content:// URIs on Android.
+      const fileUri = savedUri.startsWith('file://') || savedUri.startsWith('content://')
+        ? savedUri
+        : `file://${savedUri}`;
+      
+      try {
+        await Share.share({
+          title: 'Dashboard Report',
+          message: 'Please find the dashboard report attached.',
+          url: fileUri,
+          failOnCancel: false, // Don't error if user cancels share dialog
         });
-        return;
-      }
 
-      Alert.alert('PDF generated', `Report saved to: ${uri}`);
+        // No user-facing modal; just log success (keeps UI clean)
+        console.log('Report shared or saved at:', savedUri);
+      } catch (shareErr) {
+        // Share may fail or be cancelled; user can find file manually
+        console.log('Share action failed or cancelled:', shareErr);
+        console.log('Report saved at (fallback):', savedUri);
+      }
     } catch (error) {
-      console.log('Error exporting report PDF:', error);
-      Alert.alert('Export failed', 'Could not generate the report PDF. Please try again.');
+      console.error('Error exporting report PDF:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Could not generate the report PDF. Please try again.';
+      console.error('Export failed:', errorMessage);
     } finally {
       setIsExportingPdf(false);
     }
@@ -444,7 +499,7 @@ export default function ReportsScreen() {
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#2563eb" />
+          <ActivityIndicator size="large" color={PALETTE.green} />
         </View>
       </SafeAreaView>
     );
@@ -457,9 +512,6 @@ export default function ReportsScreen() {
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        <Text style={styles.title}>Reports</Text>
-        <Text style={styles.subtitle}>Workspace progress and board health snapshot.</Text>
-
         <TouchableOpacity
           style={[styles.exportButton, isExportingPdf ? styles.exportButtonDisabled : null]}
           onPress={handleExportPdf}
@@ -574,7 +626,7 @@ export default function ReportsScreen() {
                     <Text style={styles.boardTitle} numberOfLines={1}>{board.boardTitle}</Text>
                     <Text style={styles.boardMeta}>{board.done}/{board.total} done</Text>
                   </View>
-                  <ProgressBar value={boardCompletionRate} color="#111827" />
+                  <ProgressBar value={boardCompletionRate} color="#15803d" />
                   <Text style={styles.boardFooter}>
                     {board.pending ? `${board.pending} pending` : 'All tasks done'}
                   </Text>
@@ -589,6 +641,8 @@ export default function ReportsScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Export feedback modal removed to avoid intrusive messages after export */}
     </SafeAreaView>
   );
 }
@@ -596,7 +650,7 @@ export default function ReportsScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#f4f6f8',
+    backgroundColor: PALETTE.softWhite,
   },
   loadingContainer: {
     flex: 1,
@@ -610,17 +664,17 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '800',
-    color: '#0f172a',
+    color: PALETTE.black,
   },
   subtitle: {
     marginTop: 4,
-    color: '#64748b',
+    color: PALETTE.mutedInk,
     marginBottom: 14,
   },
   exportButton: {
     alignSelf: 'flex-start',
     borderRadius: 10,
-    backgroundColor: '#111827',
+    backgroundColor: PALETTE.black,
     paddingVertical: 10,
     paddingHorizontal: 14,
     marginBottom: 2,
@@ -629,7 +683,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   exportButtonText: {
-    color: '#ffffff',
+    color: PALETTE.white,
     fontWeight: '700',
     fontSize: 13,
   },
@@ -643,8 +697,8 @@ const styles = StyleSheet.create({
     minHeight: 96,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+    borderColor: PALETTE.border,
+    backgroundColor: PALETTE.white,
     padding: 12,
   },
   statCardSuccess: {
@@ -660,7 +714,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 28,
     fontWeight: '800',
-    color: '#0f172a',
+    color: PALETTE.black,
   },
   statHelper: {
     marginTop: 6,
@@ -706,14 +760,14 @@ const styles = StyleSheet.create({
     marginTop: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+    borderColor: PALETTE.border,
+    backgroundColor: PALETTE.white,
     padding: 12,
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#0f172a',
+    color: PALETTE.black,
     marginBottom: 10,
   },
   filterRow: {
@@ -730,8 +784,8 @@ const styles = StyleSheet.create({
     maxWidth: 170,
   },
   filterChipActive: {
-    backgroundColor: '#111827',
-    borderColor: '#111827',
+    backgroundColor: PALETTE.black,
+    borderColor: PALETTE.black,
   },
   filterChipText: {
     color: '#334155',
@@ -752,13 +806,13 @@ const styles = StyleSheet.create({
     marginTop: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#cbd5e1',
+    borderColor: '#86efac',
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#f0fdf4',
   },
   dateRangeResetText: {
-    color: '#334155',
+    color: '#166534',
     fontWeight: '600',
     fontSize: 12,
   },
@@ -830,7 +884,7 @@ const styles = StyleSheet.create({
   },
   boardTitle: {
     flex: 1,
-    color: '#0f172a',
+    color: PALETTE.black,
     fontWeight: '700',
   },
   boardMeta: {
@@ -852,7 +906,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   emptyTitle: {
-    color: '#0f172a',
+    color: PALETTE.black,
     fontWeight: '700',
   },
   emptySubtitle: {

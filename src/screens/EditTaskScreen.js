@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import {
   View,
@@ -16,6 +17,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { formatDateToString, parseDateString } from '../utils/dateHelper';
+import ConfirmDialog from '../components/ui/confirm-dialog';
 
 export default function EditTaskScreen({ route, navigation }) {
   const { task } = route.params;
@@ -25,6 +27,7 @@ export default function EditTaskScreen({ route, navigation }) {
   const [status, setStatus] = useState(task.status || 'To Do');
   const [dueDate, setDueDate] = useState(parseDateString(task.dueDate || ''));
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   const handleDateChange = (event, selectedDate) => {
     if (Platform.OS === 'android') {
@@ -64,23 +67,22 @@ export default function EditTaskScreen({ route, navigation }) {
   };
 
   const handleDeleteTask = async () => {
-    Alert.alert('Delete Task', 'Are you sure you want to delete this task?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteDoc(doc(db, 'tasks', task.id));
-            Alert.alert('Success', 'Task deleted successfully.');
-            navigation.goBack();
-          } catch (error) {
-            console.log('Delete task error:', error);
-            Alert.alert('Error', error.message);
-          }
-        },
+    setConfirmDialog({
+      title: 'Delete Task',
+      message: 'Are you sure you want to delete this task?',
+      confirmText: 'Delete',
+      tone: 'danger',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'tasks', task.id));
+          Alert.alert('Success', 'Task deleted successfully.');
+          navigation.goBack();
+        } catch (error) {
+          console.log('Delete task error:', error);
+          Alert.alert('Error', error.message);
+        }
       },
-    ]);
+    });
   };
 
   return (
@@ -140,6 +142,22 @@ export default function EditTaskScreen({ route, navigation }) {
             <Text style={styles.deleteButtonText}>Delete Task</Text>
           </TouchableOpacity>
         </View>
+
+        <ConfirmDialog
+          visible={Boolean(confirmDialog)}
+          title={confirmDialog?.title}
+          message={confirmDialog?.message}
+          confirmText={confirmDialog?.confirmText}
+          tone={confirmDialog?.tone}
+          onCancel={() => setConfirmDialog(null)}
+          onConfirm={async () => {
+            const action = confirmDialog?.onConfirm;
+            setConfirmDialog(null);
+            if (action) {
+              await action();
+            }
+          }}
+        />
       </ScrollView>
     </SafeAreaView>
   );

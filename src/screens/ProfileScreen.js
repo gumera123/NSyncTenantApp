@@ -1,26 +1,29 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
+  ActivityIndicator,
   Alert,
   Image,
-  TextInput,
-  ScrollView,
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { signOut } from 'firebase/auth';
+import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebaseConfig';
-import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { uploadImageToCloudinary } from '../utils/cloudinaryHelper';
-import { validatePhilippineMobileNumber, getPhilippineMobileErrorMessage } from '../utils/contactValidation';
+import {
+  getPhilippineMobileErrorMessage,
+  validatePhilippineMobileNumber,
+} from '../utils/contactValidation';
 import {
   leaveCurrentWorkspace,
   removeWorkspaceMemberByAdmin,
@@ -29,6 +32,8 @@ import {
   switchToWorkspaceMembership,
   updateWorkspaceMemberRoleTitle,
 } from '../utils/workspaceInvite';
+import ConfirmDialog from '../components/ui/confirm-dialog';
+import { AUTH_UI_PALETTE as PALETTE } from '../config/uiTokens';
 
 export default function ProfileScreen() {
   const [userData, setUserData] = useState(null);
@@ -46,6 +51,8 @@ export default function ProfileScreen() {
   const [removingMemberId, setRemovingMemberId] = useState('');
   const [switchingWorkspace, setSwitchingWorkspace] = useState(false);
   const [switchingWorkspaceId, setSwitchingWorkspaceId] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [isPhotoExpanded, setIsPhotoExpanded] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -58,14 +65,17 @@ export default function ProfileScreen() {
   });
 
   const userEmail = auth.currentUser?.email || 'No email available';
-  const isAdmin = (userData?.role || '').toLowerCase() === 'admin';
   const organizationId = userData?.organizationId || auth.currentUser?.uid || '';
   const linkedOrganizationId = userData?.linkedOrganizationId || '';
+  const isAdmin = (userData?.role || '').toLowerCase() === 'admin';
   const canLeaveWorkspace = organizationId && organizationId !== auth.currentUser?.uid;
   const canSwitchToPersonalWorkspace = organizationId && organizationId !== auth.currentUser?.uid;
 
   const workspaceMemberships = (() => {
-    const memberships = Array.isArray(userData?.workspaceMemberships) ? userData.workspaceMemberships.filter(Boolean) : [];
+    const memberships = Array.isArray(userData?.workspaceMemberships)
+      ? userData.workspaceMemberships.filter(Boolean)
+      : [];
+
     const fallbackMemberships = [
       {
         organizationId: organizationId || auth.currentUser?.uid || '',
@@ -86,8 +96,13 @@ export default function ProfileScreen() {
       });
     }
 
-    const mergedMemberships = [...memberships, ...fallbackMemberships].filter((membership, index, array) =>
-      membership.organizationId && array.findIndex((item) => item.organizationId === membership.organizationId) === index
+    const ownerPersonalWorkspaceId = auth.currentUser?.uid || '';
+
+    const mergedMemberships = [...memberships, ...fallbackMemberships].filter(
+      (membership, index, array) =>
+        membership.organizationId &&
+        membership.organizationId !== ownerPersonalWorkspaceId &&
+        array.findIndex((item) => item.organizationId === membership.organizationId) === index
     );
 
     return mergedMemberships.sort((left, right) => {
@@ -99,7 +114,9 @@ export default function ProfileScreen() {
         return 1;
       }
 
-      return (left.organizationName || left.workspaceRoleTitle || '').localeCompare(right.organizationName || right.workspaceRoleTitle || '');
+      return (left.organizationName || left.workspaceRoleTitle || '').localeCompare(
+        right.organizationName || right.workspaceRoleTitle || ''
+      );
     });
   })();
 
@@ -230,33 +247,28 @@ export default function ProfileScreen() {
 
     const memberLabel = member?.name || member?.email || 'this member';
 
-    Alert.alert(
-      'Remove Member',
-      `Are you sure you want to remove ${memberLabel} from this workspace?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setRemovingMemberId(member.id);
-              await removeWorkspaceMemberByAdmin({
-                adminUid: auth.currentUser.uid,
-                memberUid: member.id,
-                organizationId,
-              });
-              Alert.alert('Success', `${memberLabel} was removed from the workspace.`);
-            } catch (error) {
-              console.log('Error removing workspace member:', error);
-              Alert.alert('Error', error.message || 'Failed to remove member.');
-            } finally {
-              setRemovingMemberId('');
-            }
-          },
-        },
-      ]
-    );
+    setConfirmDialog({
+      title: 'Remove Member',
+      message: `Are you sure you want to remove ${memberLabel} from this workspace?`,
+      confirmText: 'Remove',
+      tone: 'danger',
+      onConfirm: async () => {
+        try {
+          setRemovingMemberId(member.id);
+          await removeWorkspaceMemberByAdmin({
+            adminUid: auth.currentUser.uid,
+            memberUid: member.id,
+            organizationId,
+          });
+          Alert.alert('Success', `${memberLabel} was removed from the workspace.`);
+        } catch (error) {
+          console.log('Error removing workspace member:', error);
+          Alert.alert('Error', error.message || 'Failed to remove member.');
+        } finally {
+          setRemovingMemberId('');
+        }
+      },
+    });
   }, [isAdmin, organizationId]);
 
   const pickImage = async () => {
@@ -279,7 +291,9 @@ export default function ProfileScreen() {
   };
 
   const uploadLogo = async () => {
-    if (!imageUri || !auth.currentUser) return;
+    if (!imageUri || !auth.currentUser) {
+      return;
+    }
 
     try {
       setUploading(true);
@@ -290,18 +304,23 @@ export default function ProfileScreen() {
         updatedAt: serverTimestamp(),
       });
 
-      setUserData((prev) => ({ ...prev, organizationLogoUrl: uploadedImageUrl }));
+      setUserData((previous) => ({
+        ...previous,
+        organizationLogoUrl: uploadedImageUrl,
+      }));
       setImageUri(null);
       Alert.alert('Success', 'Logo uploaded successfully.');
     } catch (error) {
-      Alert.alert('Error', error.message);
+      Alert.alert('Error', error.message || 'Failed to upload logo.');
     } finally {
       setUploading(false);
     }
   };
 
   const handleSaveProfile = async () => {
-    if (!auth.currentUser) return;
+    if (!auth.currentUser) {
+      return;
+    }
 
     if (!formData.name.trim()) {
       Alert.alert('Validation Error', 'Name is required.');
@@ -309,11 +328,10 @@ export default function ProfileScreen() {
     }
 
     const contactNumberValue = formData.contactNumber.trim();
-
     if (contactNumberValue && !validatePhilippineMobileNumber(contactNumberValue)) {
-      const errorMsg = getPhilippineMobileErrorMessage();
-      setContactError(errorMsg);
-      Alert.alert('Invalid Contact Number', errorMsg);
+      const errorMessage = getPhilippineMobileErrorMessage();
+      setContactError(errorMessage);
+      Alert.alert('Invalid Contact Number', errorMessage);
       return;
     }
 
@@ -333,8 +351,8 @@ export default function ProfileScreen() {
           : {}),
       });
 
-      setUserData((prev) => ({
-        ...prev,
+      setUserData((previous) => ({
+        ...previous,
         ...formData,
         contactNumber: contactNumberValue,
       }));
@@ -344,7 +362,7 @@ export default function ProfileScreen() {
       Alert.alert('Success', 'Profile updated successfully.');
     } catch (error) {
       console.log('Error saving profile:', error);
-      Alert.alert('Error', error.message);
+      Alert.alert('Error', error.message || 'Failed to save profile.');
     } finally {
       setSaving(false);
     }
@@ -369,25 +387,20 @@ export default function ProfileScreen() {
   };
 
   const handleLogout = () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to log out of this account?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await signOut(auth);
-            } catch (error) {
-              console.log('Error signing out:', error);
-              Alert.alert('Error', 'Failed to sign out');
-            }
-          },
-        },
-      ]
-    );
+    setConfirmDialog({
+      title: 'Logout',
+      message: 'Are you sure you want to log out of this account?',
+      confirmText: 'Logout',
+      tone: 'danger',
+      onConfirm: async () => {
+        try {
+          await signOut(auth);
+        } catch (error) {
+          console.log('Error signing out:', error);
+          Alert.alert('Error', 'Failed to sign out');
+        }
+      },
+    });
   };
 
   const handleLeaveWorkspace = async () => {
@@ -395,42 +408,26 @@ export default function ProfileScreen() {
       return;
     }
 
-    Alert.alert(
-      'Leave Workspace',
-      'Do you really want to leave this workspace? You will lose access to this workspace and return to your personal workspace.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Yes, Leave',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setLeavingWorkspace(true);
-              await leaveCurrentWorkspace(auth.currentUser.uid);
-
-              const refreshedUserDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-              if (refreshedUserDoc.exists()) {
-                const refreshedData = refreshedUserDoc.data();
-                setUserData(refreshedData);
-                setFormData((prev) => ({
-                  ...prev,
-                  organizationName: refreshedData.organizationName || prev.organizationName,
-                  role: refreshedData.role || prev.role,
-                  workspaceRoleTitle: refreshedData.workspaceRoleTitle || prev.workspaceRoleTitle,
-                }));
-              }
-
-              Alert.alert('Success', 'You have left the workspace.');
-            } catch (error) {
-              console.log('Error leaving workspace:', error);
-              Alert.alert('Error', error.message);
-            } finally {
-              setLeavingWorkspace(false);
-            }
-          },
-        },
-      ]
-    );
+    setConfirmDialog({
+      title: 'Leave Workspace',
+      message:
+        'Do you really want to leave this workspace? You will lose access to this workspace and return to your personal workspace.',
+      confirmText: 'Yes, Leave',
+      tone: 'danger',
+      onConfirm: async () => {
+        try {
+          setLeavingWorkspace(true);
+          await leaveCurrentWorkspace(auth.currentUser.uid);
+          await fetchUserData();
+          Alert.alert('Success', 'You have left the workspace.');
+        } catch (error) {
+          console.log('Error leaving workspace:', error);
+          Alert.alert('Error', error.message || 'Failed to leave workspace.');
+        } finally {
+          setLeavingWorkspace(false);
+        }
+      },
+    });
   };
 
   const handleSwitchToPersonalWorkspace = () => {
@@ -438,29 +435,25 @@ export default function ProfileScreen() {
       return;
     }
 
-    Alert.alert(
-      'Switch Workspace',
-      'Switch to your personal workspace now? You can switch back later without leaving this workspace.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Switch',
-          onPress: async () => {
-            try {
-              setSwitchingWorkspace(true);
-              await switchToPersonalWorkspace(auth.currentUser.uid);
-              await fetchUserData();
-              Alert.alert('Success', 'You are now in your personal workspace.');
-            } catch (error) {
-              console.log('Error switching to personal workspace:', error);
-              Alert.alert('Error', error.message || 'Failed to switch workspace.');
-            } finally {
-              setSwitchingWorkspace(false);
-            }
-          },
-        },
-      ]
-    );
+    setConfirmDialog({
+      title: 'Switch Workspace',
+      message: 'Switch to your personal workspace now? You can switch back later without leaving this workspace.',
+      confirmText: 'Switch',
+      tone: 'primary',
+      onConfirm: async () => {
+        try {
+          setSwitchingWorkspace(true);
+          await switchToPersonalWorkspace(auth.currentUser.uid);
+          await fetchUserData();
+          Alert.alert('Success', 'You are now in your personal workspace.');
+        } catch (error) {
+          console.log('Error switching to personal workspace:', error);
+          Alert.alert('Error', error.message || 'Failed to switch workspace.');
+        } finally {
+          setSwitchingWorkspace(false);
+        }
+      },
+    });
   };
 
   const handleSwitchToWorkspaceMembership = (membership) => {
@@ -468,29 +461,25 @@ export default function ProfileScreen() {
       return;
     }
 
-    Alert.alert(
-      'Switch Workspace',
-      `Switch to ${membership.organizationName || membership.workspaceRoleTitle || 'this workspace'}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Switch',
-          onPress: async () => {
-            try {
-              setSwitchingWorkspaceId(membership.organizationId);
-              await switchToWorkspaceMembership(auth.currentUser.uid, membership);
-              await fetchUserData();
-              Alert.alert('Success', 'Workspace switched successfully.');
-            } catch (error) {
-              console.log('Error switching workspace:', error);
-              Alert.alert('Error', error.message || 'Failed to switch workspace.');
-            } finally {
-              setSwitchingWorkspaceId('');
-            }
-          },
-        },
-      ]
-    );
+    setConfirmDialog({
+      title: 'Switch Workspace',
+      message: `Switch to ${membership.organizationName || membership.workspaceRoleTitle || 'this workspace'}?`,
+      confirmText: 'Switch',
+      tone: 'primary',
+      onConfirm: async () => {
+        try {
+          setSwitchingWorkspaceId(membership.organizationId);
+          await switchToWorkspaceMembership(auth.currentUser.uid, membership);
+          await fetchUserData();
+          Alert.alert('Success', 'Workspace switched successfully.');
+        } catch (error) {
+          console.log('Error switching workspace:', error);
+          Alert.alert('Error', error.message || 'Failed to switch workspace.');
+        } finally {
+          setSwitchingWorkspaceId('');
+        }
+      },
+    });
   };
 
   if (loading) {
@@ -498,7 +487,7 @@ export default function ProfileScreen() {
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#2563eb" />
+          <ActivityIndicator size="large" color={PALETTE.green} />
         </View>
       </SafeAreaView>
     );
@@ -511,90 +500,96 @@ export default function ProfileScreen() {
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardAvoidingView}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+          keyboardVerticalOffset={0}
         >
           <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             <Text style={styles.title}>Edit Profile</Text>
             <Text style={styles.subtitle}>Update your account details.</Text>
 
-          <View style={styles.card}>
-            <Text style={styles.label}>Full Name *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter full name"
-              placeholderTextColor="#94a3b8"
-              value={formData.name}
-              onChangeText={(text) => setFormData({ ...formData, name: text })}
-              editable={!saving}
-            />
+            <View style={styles.card}>
+              <Text style={styles.label}>Full Name *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter full name"
+                placeholderTextColor="#94a3b8"
+                value={formData.name}
+                onChangeText={(text) => setFormData({ ...formData, name: text })}
+                editable={!saving}
+              />
 
-            <Text style={styles.label}>Email</Text>
-            <Text style={styles.readOnly}>{userEmail}</Text>
+              <Text style={styles.label}>Email</Text>
+              <Text style={styles.readOnly}>{userEmail}</Text>
 
-            <Text style={styles.label}>Contact Number</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="09XXXXXXXXX"
-              placeholderTextColor="#94a3b8"
-              value={formData.contactNumber}
-              onChangeText={(text) => {
-                setFormData({ ...formData, contactNumber: text });
-                if (contactError) setContactError('');
-              }}
-              editable={!saving}
-              keyboardType="phone-pad"
-            />
-            {contactError ? <Text style={styles.errorText}>{contactError}</Text> : null}
+              <Text style={styles.label}>Contact Number</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="09XXXXXXXXX"
+                placeholderTextColor="#94a3b8"
+                value={formData.contactNumber}
+                onChangeText={(text) => {
+                  setFormData({ ...formData, contactNumber: text });
+                  if (contactError) {
+                    setContactError('');
+                  }
+                }}
+                editable={!saving}
+                keyboardType="phone-pad"
+              />
+              {contactError ? <Text style={styles.errorText}>{contactError}</Text> : null}
 
-            <Text style={styles.label}>Address</Text>
-            <TextInput
-              style={[styles.input, styles.multiline]}
-              placeholder="Enter address"
-              placeholderTextColor="#94a3b8"
-              value={formData.address}
-              onChangeText={(text) => setFormData({ ...formData, address: text })}
-              editable={!saving}
-              multiline
-            />
+              <Text style={styles.label}>Address</Text>
+              <TextInput
+                style={[styles.input, styles.multiline]}
+                placeholder="Enter address"
+                placeholderTextColor="#94a3b8"
+                value={formData.address}
+                onChangeText={(text) => setFormData({ ...formData, address: text })}
+                editable={!saving}
+                multiline
+              />
 
-            <Text style={styles.label}>Organization</Text>
-            <TextInput
-              style={isAdmin ? styles.input : styles.readOnly}
-              placeholder="Organization name"
-              placeholderTextColor="#94a3b8"
-              value={formData.organizationName}
-              onChangeText={(text) => setFormData({ ...formData, organizationName: text })}
-              editable={isAdmin && !saving}
-            />
+              <Text style={styles.label}>Organization</Text>
+              <TextInput
+                style={isAdmin ? styles.input : styles.readOnly}
+                placeholder="Organization name"
+                placeholderTextColor="#94a3b8"
+                value={formData.organizationName}
+                onChangeText={(text) => setFormData({ ...formData, organizationName: text })}
+                editable={isAdmin && !saving}
+              />
 
-            {isAdmin ? (
-              <>
-                <Text style={styles.label}>Workspace Role Title</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Ex. UI/UX Designer"
-                  placeholderTextColor="#94a3b8"
-                  value={formData.workspaceRoleTitle}
-                  onChangeText={(text) => setFormData({ ...formData, workspaceRoleTitle: text })}
-                  editable={!saving}
-                />
-              </>
-            ) : (
-              <>
-                <Text style={styles.label}>Workspace Role</Text>
-                <Text style={styles.readOnly}>{userData?.workspaceRoleTitle || userData?.role || 'Member'}</Text>
-              </>
-            )}
+              {isAdmin ? (
+                <>
+                  <Text style={styles.label}>Workspace Role Title</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Ex. UI/UX Designer"
+                    placeholderTextColor="#94a3b8"
+                    value={formData.workspaceRoleTitle}
+                    onChangeText={(text) => setFormData({ ...formData, workspaceRoleTitle: text })}
+                    editable={!saving}
+                  />
+                </>
+              ) : (
+                <>
+                  <Text style={styles.label}>Workspace Role</Text>
+                  <Text style={styles.readOnly}>{userData?.workspaceRoleTitle || userData?.role || 'Member'}</Text>
+                </>
+              )}
 
-            <View style={styles.rowButtons}>
-              <TouchableOpacity style={[styles.primaryButton, styles.flexButton]} onPress={handleSaveProfile} disabled={saving}>
-                <Text style={styles.primaryButtonText}>{saving ? 'Saving...' : 'Save'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.secondaryButton, styles.flexButton]} onPress={handleCancel}>
-                <Text style={styles.secondaryButtonText}>Cancel</Text>
-              </TouchableOpacity>
+              <View style={styles.rowButtons}>
+                <TouchableOpacity
+                  style={[styles.primaryButton, styles.flexButton]}
+                  onPress={handleSaveProfile}
+                  disabled={saving}
+                >
+                  <Text style={styles.primaryButtonText}>{saving ? 'Saving...' : 'Save'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.secondaryButton, styles.flexButton]} onPress={handleCancel}>
+                  <Text style={styles.secondaryButtonText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -607,207 +602,261 @@ export default function ProfileScreen() {
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardAvoidingView}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        keyboardVerticalOffset={0}
       >
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>Profile</Text>
-        <Text style={styles.subtitle}>Your account summary.</Text>
+          <Text style={styles.title}>Profile</Text>
+          <Text style={styles.subtitle}>Your account summary.</Text>
 
-        <View style={styles.card}>
-          <View style={styles.profileTop}>
-            <TouchableOpacity onPress={pickImage} activeOpacity={0.85}>
-              {userData?.organizationLogoUrl ? (
-                <Image source={{ uri: userData.organizationLogoUrl }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatarFallback}>
-                  <Text style={styles.avatarFallbackText}>{(userData?.name || userEmail.charAt(0)).charAt(0).toUpperCase()}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-            <View style={styles.profileMeta}>
-              <Text style={styles.name}>{userData?.name || 'Your Name'}</Text>
-              <Text style={styles.role}>{userData?.role || 'Member'}</Text>
-              <Text style={styles.memberEmail}>{userData?.workspaceRoleTitle || 'No workspace role title yet'}</Text>
-            </View>
-          </View>
-
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Email</Text>
-            <Text style={styles.infoValue}>{userEmail}</Text>
-          </View>
-
-          {userData?.contactNumber ? (
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Phone</Text>
-              <Text style={styles.infoValue}>{userData.contactNumber}</Text>
-            </View>
-          ) : null}
-
-          {userData?.address ? (
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Address</Text>
-              <Text style={styles.infoValue}>{userData.address}</Text>
-            </View>
-          ) : null}
-
-          {imageUri ? <Image source={{ uri: imageUri }} style={styles.logoPreview} /> : null}
-
-          {imageUri ? (
-            <TouchableOpacity style={[styles.primaryButton, uploading && styles.buttonDisabled]} onPress={uploadLogo} disabled={uploading}>
-              <Text style={styles.primaryButtonText}>{uploading ? 'Uploading...' : 'Upload Logo'}</Text>
-            </TouchableOpacity>
-          ) : null}
-
-          <TouchableOpacity style={styles.primaryButton} onPress={() => setIsEditMode(true)}>
-            <Text style={styles.primaryButtonText}>Edit Profile</Text>
-          </TouchableOpacity>
-
-          {workspaceMemberships.length > 0 ? (
-            <View style={styles.workspaceSwitcherCard}>
-              <Text style={styles.workspaceSwitcherTitle}>Workspace Switcher</Text>
-              <Text style={styles.workspaceSwitcherSubtitle}>Switch between the workspaces you belong to.</Text>
-
-              {workspaceMemberships.map((membership) => {
-                const isActiveWorkspace = membership.organizationId === organizationId;
-
-                return (
-                  <View key={membership.organizationId} style={styles.workspaceSwitcherItem}>
-                    <View style={styles.workspaceSwitcherInfo}>
-                      <Text style={styles.workspaceSwitcherName} numberOfLines={1}>
-                        {membership.organizationName || membership.workspaceRoleTitle || 'Workspace'}
-                      </Text>
-                      <Text style={styles.workspaceSwitcherMeta} numberOfLines={1}>
-                        {membership.workspaceRoleTitle || membership.role || 'Member'}
-                      </Text>
-                    </View>
-
-                    {isActiveWorkspace ? (
-                      <View style={styles.workspaceActiveBadge}>
-                        <Text style={styles.workspaceActiveBadgeText}>Active</Text>
-                      </View>
-                    ) : (
-                      <TouchableOpacity
-                        style={[
-                          styles.workspaceSwitchButton,
-                          switchingWorkspaceId === membership.organizationId && styles.buttonDisabled,
-                        ]}
-                        onPress={() => handleSwitchToWorkspaceMembership(membership)}
-                        disabled={switchingWorkspaceId === membership.organizationId}
-                      >
-                        <Text style={styles.workspaceSwitchButtonText}>
-                          {switchingWorkspaceId === membership.organizationId ? 'Switching...' : 'Switch'}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                );
-              })}
-            </View>
-          ) : null}
-
-          {canSwitchToPersonalWorkspace ? (
-            <TouchableOpacity
-              style={[styles.switchWorkspaceButton, switchingWorkspace && styles.buttonDisabled]}
-              onPress={handleSwitchToPersonalWorkspace}
-              disabled={switchingWorkspace}
-            >
-              <Text style={styles.switchWorkspaceText}>{switchingWorkspace ? 'Switching...' : 'Switch to Personal Workspace'}</Text>
-            </TouchableOpacity>
-          ) : null}
-
-          {canLeaveWorkspace ? (
-            <>
+          <View style={styles.card}>
+            <View style={styles.profileTop}>
               <TouchableOpacity
-                style={[styles.leaveWorkspaceButton, leavingWorkspace && styles.buttonDisabled]}
-                onPress={handleLeaveWorkspace}
-                disabled={leavingWorkspace}
+                onLongPress={() => setIsPhotoExpanded(true)}
+                delayLongPress={280}
+                activeOpacity={0.9}
               >
-                <Text style={styles.leaveWorkspaceText}>{leavingWorkspace ? 'Leaving...' : 'Leave Workspace'}</Text>
+                {userData?.organizationLogoUrl ? (
+                  <Image source={{ uri: userData.organizationLogoUrl }} style={styles.avatar} />
+                ) : (
+                  <View style={styles.avatarFallback}>
+                    <Text style={styles.avatarFallbackText}>
+                      {(userData?.name || userEmail.charAt(0)).charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
               </TouchableOpacity>
-              <Text style={styles.leaveWorkspaceHint}>Leaving will return you to your personal workspace.</Text>
-            </>
-          ) : null}
-
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
-        </View>
-
-        {isAdmin && workspaceMembers.length > 0 ? (
-          <View style={styles.membersCard}>
-            <Text style={styles.membersTitle}>Current Workspace Members</Text>
-            <Text style={styles.membersSubtitle}>Real-time list. Members disappear here immediately after leaving.</Text>
-
-            {membersLoading ? (
-              <View style={styles.membersLoadingWrap}>
-                <ActivityIndicator size="small" color="#2563eb" />
+              <View style={styles.profileMeta}>
+                <Text style={styles.name}>{userData?.name || 'Your Name'}</Text>
+                <Text style={styles.role}>{userData?.role || 'Member'}</Text>
+                <Text style={styles.memberEmail}>{userData?.workspaceRoleTitle || 'No workspace role title yet'}</Text>
+                <Text style={styles.photoHint}>Long press profile photo to expand</Text>
               </View>
-            ) : (
-              workspaceMembers.map((member) => {
-                const memberDisplayName = member.name || member.email || 'Unnamed Member';
-                const defaultRoleTitle = member.workspaceRoleTitle || member.role || 'Member';
-                const roleDraft = memberRoleDrafts[member.id] ?? defaultRoleTitle;
-                const isCurrentUser = member.id === auth.currentUser?.uid;
+            </View>
 
-                return (
-                  <View key={member.id} style={styles.memberRow}>
-                    <View style={styles.memberTopRow}>
-                      <View style={styles.memberInfoWrap}>
-                        <Text style={styles.memberName}>{memberDisplayName}{isCurrentUser ? ' (You)' : ''}</Text>
-                        <Text style={styles.memberMeta}>{member.email || 'No email'}</Text>
+            {isPhotoExpanded ? (
+              <View style={styles.expandedPhotoCard}>
+                {userData?.organizationLogoUrl ? (
+                  <Image source={{ uri: userData.organizationLogoUrl }} style={styles.avatarExpanded} />
+                ) : (
+                  <View style={styles.avatarFallbackExpanded}>
+                    <Text style={styles.avatarFallbackExpandedText}>
+                      {(userData?.name || userEmail.charAt(0)).charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={[styles.photoActionButton, uploading && styles.buttonDisabled]}
+                  onPress={pickImage}
+                  disabled={uploading}
+                >
+                  <Text style={styles.photoActionButtonText}>Change Photo</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.photoCloseButton} onPress={() => setIsPhotoExpanded(false)}>
+                  <Text style={styles.photoCloseButtonText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Email</Text>
+              <Text style={styles.infoValue}>{userEmail}</Text>
+            </View>
+
+            {userData?.contactNumber ? (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Phone</Text>
+                <Text style={styles.infoValue}>{userData.contactNumber}</Text>
+              </View>
+            ) : null}
+
+            {userData?.address ? (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Address</Text>
+                <Text style={styles.infoValue}>{userData.address}</Text>
+              </View>
+            ) : null}
+
+            {imageUri ? <Image source={{ uri: imageUri }} style={styles.logoPreview} /> : null}
+
+            {imageUri ? (
+              <TouchableOpacity
+                style={[styles.primaryButton, uploading && styles.buttonDisabled]}
+                onPress={uploadLogo}
+                disabled={uploading}
+              >
+                <Text style={styles.primaryButtonText}>{uploading ? 'Uploading...' : 'Upload Logo'}</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            <TouchableOpacity style={styles.primaryButton} onPress={() => setIsEditMode(true)}>
+              <Text style={styles.primaryButtonText}>Edit Profile</Text>
+            </TouchableOpacity>
+
+            {workspaceMemberships.length > 0 ? (
+              <View style={styles.workspaceSwitcherCard}>
+                <Text style={styles.workspaceSwitcherTitle}>Workspace Switcher</Text>
+                <Text style={styles.workspaceSwitcherSubtitle}>Switch between the workspaces you belong to.</Text>
+
+                {workspaceMemberships.map((membership) => {
+                  const isActiveWorkspace = membership.organizationId === organizationId;
+
+                  return (
+                    <View key={membership.organizationId} style={styles.workspaceSwitcherItem}>
+                      <View style={styles.workspaceSwitcherInfo}>
+                        <Text style={styles.workspaceSwitcherName} numberOfLines={1}>
+                          {membership.organizationName || membership.workspaceRoleTitle || 'Workspace'}
+                        </Text>
+                        <Text style={styles.workspaceSwitcherMeta} numberOfLines={1}>
+                          {membership.workspaceRoleTitle || membership.role || 'Member'}
+                        </Text>
                       </View>
 
-                      {!isCurrentUser ? (
+                      {isActiveWorkspace ? (
+                        <View style={styles.workspaceActiveBadge}>
+                          <Text style={styles.workspaceActiveBadgeText}>Active</Text>
+                        </View>
+                      ) : (
                         <TouchableOpacity
                           style={[
-                            styles.removeMemberButton,
-                            removingMemberId === member.id && styles.buttonDisabled,
+                            styles.workspaceSwitchButton,
+                            switchingWorkspaceId === membership.organizationId && styles.buttonDisabled,
                           ]}
-                          onPress={() => handleRemoveMember(member)}
-                          disabled={removingMemberId === member.id}
+                          onPress={() => handleSwitchToWorkspaceMembership(membership)}
+                          disabled={switchingWorkspaceId === membership.organizationId}
                         >
-                          <Text style={styles.removeMemberButtonText}>
-                            {removingMemberId === member.id ? 'Removing...' : 'Remove'}
+                          <Text style={styles.workspaceSwitchButtonText}>
+                            {switchingWorkspaceId === membership.organizationId ? 'Switching...' : 'Switch'}
                           </Text>
                         </TouchableOpacity>
-                      ) : null}
+                      )}
                     </View>
+                  );
+                })}
+              </View>
+            ) : null}
 
-                    <View style={styles.memberRoleRow}>
-                      <TextInput
-                        style={styles.memberRoleInput}
-                        placeholder="Type role title"
-                        placeholderTextColor="#94a3b8"
-                        value={roleDraft}
-                        onChangeText={(text) =>
-                          setMemberRoleDrafts((currentDrafts) => ({
-                            ...currentDrafts,
-                            [member.id]: text,
-                          }))
-                        }
-                        editable={updatingMemberId !== member.id && removingMemberId !== member.id}
-                      />
+            {canSwitchToPersonalWorkspace ? (
+              <TouchableOpacity
+                style={[styles.switchWorkspaceButton, switchingWorkspace && styles.buttonDisabled]}
+                onPress={handleSwitchToPersonalWorkspace}
+                disabled={switchingWorkspace}
+              >
+                <Text style={styles.switchWorkspaceText}>{switchingWorkspace ? 'Switching...' : 'Switch to Personal Workspace'}</Text>
+              </TouchableOpacity>
+            ) : null}
 
-                      <TouchableOpacity
-                        style={[
-                          styles.memberRoleSaveButton,
-                          (updatingMemberId === member.id || !roleDraft.trim() || removingMemberId === member.id) && styles.memberRoleSaveButtonDisabled,
-                        ]}
-                        onPress={() => handleAssignMemberRole(member.id)}
-                        disabled={updatingMemberId === member.id || !roleDraft.trim() || removingMemberId === member.id}
-                      >
-                        <Text style={styles.memberRoleSaveButtonText}>
-                          {updatingMemberId === member.id ? 'Saving...' : 'Save'}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                );
-              })
-            )}
+            {canLeaveWorkspace ? (
+              <>
+                <TouchableOpacity
+                  style={[styles.leaveWorkspaceButton, leavingWorkspace && styles.buttonDisabled]}
+                  onPress={handleLeaveWorkspace}
+                  disabled={leavingWorkspace}
+                >
+                  <Text style={styles.leaveWorkspaceText}>{leavingWorkspace ? 'Leaving...' : 'Leave Workspace'}</Text>
+                </TouchableOpacity>
+                <Text style={styles.leaveWorkspaceHint}>Leaving will return you to your personal workspace.</Text>
+              </>
+            ) : null}
+
+            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+              <Text style={styles.logoutText}>Logout</Text>
+            </TouchableOpacity>
           </View>
-        ) : null}
-      </ScrollView>
+
+          {isAdmin && (membersLoading || workspaceMembers.length > 0) ? (
+            <View style={styles.membersCard}>
+              <Text style={styles.membersTitle}>Current Workspace Members</Text>
+              <Text style={styles.membersSubtitle}>Real-time list. Members disappear here immediately after leaving.</Text>
+
+              {membersLoading ? (
+                <View style={styles.membersLoadingWrap}>
+                  <ActivityIndicator size="small" color="#2563eb" />
+                </View>
+              ) : (
+                workspaceMembers.map((member) => {
+                  const memberDisplayName = member.name || member.email || 'Unnamed Member';
+                  const defaultRoleTitle = member.workspaceRoleTitle || member.role || 'Member';
+                  const roleDraft = memberRoleDrafts[member.id] ?? defaultRoleTitle;
+                  const isCurrentUser = member.id === auth.currentUser?.uid;
+
+                  return (
+                    <View key={member.id} style={styles.memberRow}>
+                      <View style={styles.memberTopRow}>
+                        <View style={styles.memberInfoWrap}>
+                          <Text style={styles.memberName}>
+                            {memberDisplayName}
+                            {isCurrentUser ? ' (You)' : ''}
+                          </Text>
+                          <Text style={styles.memberMeta}>{member.email || 'No email'}</Text>
+                        </View>
+
+                        {!isCurrentUser ? (
+                          <TouchableOpacity
+                            style={[styles.removeMemberButton, removingMemberId === member.id && styles.buttonDisabled]}
+                            onPress={() => handleRemoveMember(member)}
+                            disabled={removingMemberId === member.id}
+                          >
+                            <Text style={styles.removeMemberButtonText}>
+                              {removingMemberId === member.id ? 'Removing...' : 'Remove'}
+                            </Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+
+                      <View style={styles.memberRoleRow}>
+                        <TextInput
+                          style={styles.memberRoleInput}
+                          placeholder="Type role title"
+                          placeholderTextColor="#94a3b8"
+                          value={roleDraft}
+                          onChangeText={(text) =>
+                            setMemberRoleDrafts((currentDrafts) => ({
+                              ...currentDrafts,
+                              [member.id]: text,
+                            }))
+                          }
+                          editable={updatingMemberId !== member.id && removingMemberId !== member.id}
+                        />
+
+                        <TouchableOpacity
+                          style={[
+                            styles.memberRoleSaveButton,
+                            (updatingMemberId === member.id || !roleDraft.trim() || removingMemberId === member.id) &&
+                              styles.memberRoleSaveButtonDisabled,
+                          ]}
+                          onPress={() => handleAssignMemberRole(member.id)}
+                          disabled={updatingMemberId === member.id || !roleDraft.trim() || removingMemberId === member.id}
+                        >
+                          <Text style={styles.memberRoleSaveButtonText}>
+                            {updatingMemberId === member.id ? 'Saving...' : 'Save'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+            </View>
+          ) : null}
+
+          <ConfirmDialog
+            visible={Boolean(confirmDialog)}
+            title={confirmDialog?.title}
+            message={confirmDialog?.message}
+            confirmText={confirmDialog?.confirmText}
+            tone={confirmDialog?.tone}
+            onCancel={() => setConfirmDialog(null)}
+            onConfirm={async () => {
+              const action = confirmDialog?.onConfirm;
+              setConfirmDialog(null);
+              if (action) {
+                await action();
+              }
+            }}
+          />
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -816,7 +865,7 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#f4f6f8',
+    backgroundColor: PALETTE.softWhite,
   },
   keyboardAvoidingView: {
     flex: 1,
@@ -833,17 +882,17 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '800',
-    color: '#0f172a',
+    color: PALETTE.black,
   },
   subtitle: {
     marginTop: 4,
     marginBottom: 14,
-    color: '#64748b',
+    color: PALETTE.mutedInk,
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: PALETTE.white,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: PALETTE.border,
     borderRadius: 12,
     padding: 14,
   },
@@ -877,50 +926,50 @@ const styles = StyleSheet.create({
   name: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#0f172a',
+    color: PALETTE.black,
   },
   role: {
     marginTop: 2,
-    color: '#64748b',
+    color: PALETTE.mutedInk,
   },
   infoRow: {
     marginBottom: 10,
   },
   infoLabel: {
     fontSize: 12,
-    color: '#64748b',
+    color: PALETTE.mutedInk,
     marginBottom: 2,
   },
   infoValue: {
-    color: '#0f172a',
+    color: PALETTE.black,
     fontSize: 14,
     fontWeight: '500',
   },
   label: {
     fontWeight: '600',
-    color: '#0f172a',
+    color: PALETTE.black,
     marginBottom: 6,
   },
   input: {
     height: 48,
     borderWidth: 1,
-    borderColor: '#dbe1ea',
+    borderColor: PALETTE.border,
     borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: PALETTE.softWhite,
     paddingHorizontal: 12,
     marginBottom: 10,
-    color: '#0f172a',
+    color: PALETTE.black,
   },
   readOnly: {
     minHeight: 48,
     borderWidth: 1,
-    borderColor: '#dbe1ea',
+    borderColor: PALETTE.border,
     borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: PALETTE.softWhite,
     paddingHorizontal: 12,
     paddingVertical: 14,
     marginBottom: 10,
-    color: '#64748b',
+    color: PALETTE.mutedInk,
   },
   multiline: {
     height: 96,
@@ -944,32 +993,32 @@ const styles = StyleSheet.create({
   primaryButton: {
     height: 46,
     borderRadius: 10,
-    backgroundColor: '#111827',
+    backgroundColor: PALETTE.black,
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 10,
   },
   primaryButtonText: {
-    color: '#fff',
+    color: PALETTE.white,
     fontWeight: '700',
   },
   workspaceSwitcherCard: {
     marginTop: 12,
-    backgroundColor: '#fff',
+    backgroundColor: PALETTE.white,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: PALETTE.border,
     borderRadius: 12,
     padding: 14,
   },
   workspaceSwitcherTitle: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#0f172a',
+    color: PALETTE.black,
   },
   workspaceSwitcherSubtitle: {
     marginTop: 4,
     marginBottom: 10,
-    color: '#64748b',
+    color: PALETTE.mutedInk,
     fontSize: 12,
   },
   workspaceSwitcherItem: {
@@ -1014,12 +1063,12 @@ const styles = StyleSheet.create({
     height: 34,
     paddingHorizontal: 12,
     borderRadius: 8,
-    backgroundColor: '#111827',
+    backgroundColor: PALETTE.black,
     justifyContent: 'center',
     alignItems: 'center',
   },
   workspaceSwitchButtonText: {
-    color: '#ffffff',
+    color: PALETTE.white,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -1027,21 +1076,87 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#dbe1ea',
-    backgroundColor: '#f8fafc',
+    borderColor: PALETTE.border,
+    backgroundColor: PALETTE.softWhite,
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 10,
   },
   secondaryButtonText: {
-    color: '#0f172a',
+    color: PALETTE.black,
     fontWeight: '600',
   },
   memberEmail: {
-    color: '#64748b',
+    color: PALETTE.mutedInk,
     fontSize: 12,
     marginTop: 2,
     flexShrink: 1,
+  },
+  photoHint: {
+    marginTop: 6,
+    fontSize: 12,
+    color: PALETTE.mutedInk,
+  },
+  expandedPhotoCard: {
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+    alignItems: 'center',
+  },
+  avatarExpanded: {
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+  },
+  avatarFallbackExpanded: {
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: '#e2e8f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarFallbackExpandedText: {
+    fontSize: 52,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  photoActionButton: {
+    width: '70%',
+    maxWidth: 260,
+    minHeight: 46,
+    borderRadius: 12,
+    backgroundColor: PALETTE.black,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 14,
+    paddingHorizontal: 14,
+  },
+  photoActionButtonText: {
+    color: PALETTE.white,
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  photoCloseButton: {
+    width: '70%',
+    maxWidth: 260,
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingHorizontal: 14,
+  },
+  photoCloseButtonText: {
+    color: '#0f172a',
+    fontWeight: '700',
+    fontSize: 16,
   },
   logoPreview: {
     width: '100%',
@@ -1062,6 +1177,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 10,
   },
+  switchWorkspaceButton: {
+    height: 46,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    backgroundColor: '#f0fdf4',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  switchWorkspaceText: {
+    color: PALETTE.green,
+    fontWeight: '700',
+  },
   leaveWorkspaceButton: {
     height: 46,
     borderRadius: 10,
@@ -1076,20 +1205,6 @@ const styles = StyleSheet.create({
     color: '#b45309',
     fontWeight: '700',
   },
-  switchWorkspaceButton: {
-    height: 46,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#bfdbfe',
-    backgroundColor: '#eff6ff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  switchWorkspaceText: {
-    color: '#1d4ed8',
-    fontWeight: '700',
-  },
   leaveWorkspaceHint: {
     marginTop: 6,
     color: '#92400e',
@@ -1099,22 +1214,103 @@ const styles = StyleSheet.create({
     color: '#dc2626',
     fontWeight: '700',
   },
-  membersCard: {
-    marginTop: 12,
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.42)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  confirmCard: {
     backgroundColor: '#fff',
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    padding: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+  },
+  confirmIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  confirmIcon: {
+    color: '#0f172a',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  confirmTitle: {
+    color: '#0f172a',
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  confirmMessage: {
+    marginTop: 8,
+    color: '#475569',
+    lineHeight: 22,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 18,
+  },
+  confirmCancelButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    backgroundColor: '#f8fafc',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  confirmCancelText: {
+    color: '#0f172a',
+    fontWeight: '700',
+  },
+  confirmPrimaryButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  confirmDangerButton: {
+    backgroundColor: '#dc2626',
+  },
+  confirmPrimaryText: {
+    color: '#fff',
+    fontWeight: '800',
+  },
+  confirmDangerText: {
+    color: '#fff',
+  },
+  membersCard: {
+    marginTop: 12,
+    backgroundColor: PALETTE.white,
+    borderWidth: 1,
+    borderColor: PALETTE.border,
     borderRadius: 12,
     padding: 14,
   },
   membersTitle: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#0f172a',
+    color: PALETTE.black,
   },
   membersSubtitle: {
     marginTop: 4,
-    color: '#64748b',
+    color: PALETTE.mutedInk,
     fontSize: 12,
     marginBottom: 10,
   },
@@ -1122,10 +1318,6 @@ const styles = StyleSheet.create({
     height: 48,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  emptyMembersText: {
-    color: '#64748b',
-    fontSize: 13,
   },
   memberRow: {
     borderWidth: 1,
@@ -1161,12 +1353,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   memberName: {
-    color: '#0f172a',
+    color: PALETTE.black,
     fontWeight: '700',
     fontSize: 14,
   },
   memberMeta: {
-    color: '#64748b',
+    color: PALETTE.mutedInk,
     marginTop: 2,
     fontSize: 12,
   },
@@ -1179,17 +1371,17 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 42,
     borderWidth: 1,
-    borderColor: '#dbe1ea',
+    borderColor: PALETTE.border,
     borderRadius: 10,
     backgroundColor: '#ffffff',
     paddingHorizontal: 10,
-    color: '#0f172a',
+    color: PALETTE.black,
   },
   memberRoleSaveButton: {
     height: 42,
     paddingHorizontal: 14,
     borderRadius: 10,
-    backgroundColor: '#111827',
+    backgroundColor: PALETTE.black,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1197,7 +1389,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   memberRoleSaveButtonText: {
-    color: '#ffffff',
+    color: PALETTE.white,
     fontWeight: '700',
     fontSize: 12,
   },

@@ -1,50 +1,72 @@
-# Welcome to your Expo app 👋
+# NSync Mobile App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+NSync is a branded standalone React Native app for tenant workspace management.
 
-## Get started
+## Branding
 
-1. Install dependencies
+- App name: NSync
+- Core visual identity: dark ink + green accent on the S in NSync
+- Deep link scheme: nsync
 
-   ```bash
+## Development
+
+1. Install dependencies:
+
    npm install
-   ```
 
-2. Start the app
+2. Start Metro and launch app:
 
-   ```bash
-   npx expo start
-   ```
+   npm run android
 
-In the output, you'll find options to open the app in a
+You can also run:
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+- npm run start
+- npm run ios
+- npm run web
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+## Super Admin Dashboard
 
-## Get a fresh project
+The web dashboard is available at:
 
-When you're ready, run:
+- http://localhost:8081/admin
 
-```bash
-npm run reset-project
-```
+Run it with:
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+1. Install dependencies:
 
-## Learn more
+   npm install
 
-To learn more about developing your project with Expo, look at the following resources:
+2. Start the Expo web app:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+   npm run web
 
-## Join the community
+3. Open `/admin` in your browser.
 
-Join our community of developers creating universal apps.
+Super Admin login uses Firebase Auth. The signed-in account must be allowed in one of these simple ways:
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- Add `isSuperAdmin: true` to that user's Firestore document in the `users` collection.
+- Set the user's `role` to `Super Admin`.
+- Or set `EXPO_PUBLIC_SUPER_ADMIN_EMAIL=admin@example.com` before starting the app.
+
+The dashboard reads the existing Firestore collections:
+
+- `users`
+- `boards`
+- `tasks`
+- `notifications` for recent activity when available
+
+User deactivation marks the Firestore profile with `isActive: false`. Deleting a user from this dashboard removes the Firestore profile only; deleting the Firebase Auth account still requires the Firebase console or a trusted admin backend.
+
+## Main Source Structure
+
+- App bootstrap: App.js
+- Navigation: src/navigation
+- Screens: src/screens
+- Shared UI: src/components/ui
+- Super Admin web dashboard: src/admin
+- Branding tokens: src/config/uiTokens.js
+
+## Android App Identity
+
+- Display name: NSync
+- Manifest scheme: nsync

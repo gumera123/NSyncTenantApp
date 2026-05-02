@@ -23,6 +23,10 @@ export default function AddBoardScreen({ navigation }) {
   const [imageUri, setImageUri] = useState(null);
   const [uploading, setUploading] = useState(false);
 
+  const handleRemoveCover = () => {
+    setImageUri(null);
+  };
+
   const pickImage = async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
@@ -118,6 +122,12 @@ export default function AddBoardScreen({ navigation }) {
 
           {imageUri ? <Image source={{ uri: imageUri }} style={styles.previewImage} /> : null}
 
+          {imageUri ? (
+            <TouchableOpacity style={styles.removeCoverButton} onPress={handleRemoveCover}>
+              <Text style={styles.removeCoverText}>Remove Cover Image</Text>
+            </TouchableOpacity>
+          ) : null}
+
           <TouchableOpacity style={[styles.primaryButton, uploading && styles.buttonDisabled]} onPress={handleAddBoard} disabled={uploading}>
             {uploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Create Board</Text>}
           </TouchableOpacity>
@@ -186,6 +196,20 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     color: '#0f172a',
     fontWeight: '600',
+  },
+  removeCoverButton: {
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    backgroundColor: '#fef2f2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  removeCoverText: {
+    color: '#dc2626',
+    fontWeight: '700',
   },
   previewImage: {
     width: '100%',

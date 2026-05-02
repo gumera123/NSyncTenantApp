@@ -11,11 +11,12 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { addDoc, collection, serverTimestamp, getDoc, doc } from 'firebase/firestore';
 import { auth, db } from '../../firebaseConfig';
 import { formatDateToString } from '../utils/dateHelper';
+
+const statusOptions = ['To Do', 'In Progress', 'Done'];
 
 export default function AddTaskScreen({ route, navigation }) {
   const { board } = route.params;
@@ -102,12 +103,21 @@ export default function AddTaskScreen({ route, navigation }) {
           />
 
           <Text style={styles.label}>Status</Text>
-          <View style={styles.pickerWrap}>
-            <Picker selectedValue={status} onValueChange={(value) => setStatus(value)}>
-              <Picker.Item label="To Do" value="To Do" />
-              <Picker.Item label="In Progress" value="In Progress" />
-              <Picker.Item label="Done" value="Done" />
-            </Picker>
+          <View style={styles.statusSegment}>
+            {statusOptions.map((option) => {
+              const isSelected = status === option;
+
+              return (
+                <TouchableOpacity
+                  key={option}
+                  style={[styles.statusChip, isSelected ? styles.statusChipActive : null]}
+                  onPress={() => setStatus(option)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.statusChipText, isSelected ? styles.statusChipTextActive : null]}>{option}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           <TouchableOpacity style={styles.dateButton} onPress={() => setShowDatePicker(true)}>
@@ -185,13 +195,32 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     paddingTop: 10,
   },
-  pickerWrap: {
+  statusSegment: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  statusChip: {
+    flex: 1,
+    height: 42,
     borderWidth: 1,
     borderColor: '#dbe1ea',
     borderRadius: 10,
     backgroundColor: '#f8fafc',
-    marginBottom: 10,
-    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  statusChipActive: {
+    backgroundColor: '#111827',
+    borderColor: '#111827',
+  },
+  statusChipText: {
+    color: '#475569',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  statusChipTextActive: {
+    color: '#fff',
   },
   dateButton: {
     borderWidth: 1,

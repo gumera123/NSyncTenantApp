@@ -18,7 +18,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../../firebaseConfig';
+import { AUTH_UI_PALETTE as PALETTE } from '../config/uiTokens';
 import { normalizeEmail } from '../utils/workspaceInvite';
+import NSyncBrand from '../components/ui/nsync-brand';
 
 export default function RegisterScreen({ navigation }) {
   const [name, setName] = useState('');
@@ -27,6 +29,8 @@ export default function RegisterScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
 
   const handleRegister = async () => {
+    const normalizedEmail = normalizeEmail(email);
+
     if (!name.trim()) {
       Alert.alert('Validation Error', 'Name is required.');
       return;
@@ -44,9 +48,8 @@ export default function RegisterScreen({ navigation }) {
 
     try {
       setLoading(true);
-      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      const userCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
       const user = userCredential.user;
-      const normalizedEmail = normalizeEmail(email);
 
       await setDoc(doc(db, 'users', user.uid), {
         uid: user.uid,
@@ -85,14 +88,13 @@ export default function RegisterScreen({ navigation }) {
       <KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-            <Text style={styles.brand}>Create account</Text>
-            <Text style={styles.subtitle}>Start managing tasks in a clean workspace.</Text>
+            <NSyncBrand subtitle="Create your account to start managing tenant workspaces." />
 
             <View style={styles.card}>
               <TextInput
                 style={styles.input}
                 placeholder="Full name"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={PALETTE.mutedInk}
                 value={name}
                 onChangeText={setName}
                 editable={!loading}
@@ -100,7 +102,7 @@ export default function RegisterScreen({ navigation }) {
               <TextInput
                 style={styles.input}
                 placeholder="Email"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={PALETTE.mutedInk}
                 autoCapitalize="none"
                 keyboardType="email-address"
                 value={email}
@@ -110,7 +112,7 @@ export default function RegisterScreen({ navigation }) {
               <TextInput
                 style={styles.input}
                 placeholder="Password"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={PALETTE.mutedInk}
                 secureTextEntry
                 value={password}
                 onChangeText={setPassword}
@@ -118,7 +120,7 @@ export default function RegisterScreen({ navigation }) {
               />
 
               <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleRegister} disabled={loading}>
-                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Create Account</Text>}
+                {loading ? <ActivityIndicator color={PALETTE.white} /> : <Text style={styles.buttonText}>Create Account</Text>}
               </TouchableOpacity>
 
               <TouchableOpacity onPress={() => navigation.navigate('Login')}>
@@ -135,7 +137,7 @@ export default function RegisterScreen({ navigation }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#f4f6f8',
+    backgroundColor: PALETTE.white,
   },
   keyboard: {
     flex: 1,
@@ -143,59 +145,57 @@ const styles = StyleSheet.create({
   content: {
     flexGrow: 1,
     justifyContent: 'center',
-    padding: 20,
-  },
-  brand: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  subtitle: {
-    marginTop: 4,
-    marginBottom: 18,
-    color: '#64748b',
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    backgroundColor: PALETTE.white,
   },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
+    backgroundColor: PALETTE.surface,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 16,
+    borderColor: PALETTE.border,
+    padding: 18,
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 2,
   },
   input: {
-    height: 48,
-    borderRadius: 10,
+    height: 50,
+    borderRadius: 9,
     borderWidth: 1,
-    borderColor: '#dbe1ea',
-    backgroundColor: '#f8fafc',
-    paddingHorizontal: 12,
-    marginBottom: 10,
-    color: '#0f172a',
+    borderColor: PALETTE.border,
+    backgroundColor: PALETTE.softWhite,
+    paddingHorizontal: 14,
+    marginBottom: 11,
+    color: PALETTE.black,
   },
   button: {
-    marginTop: 4,
-    height: 48,
-    borderRadius: 10,
-    backgroundColor: '#0f172a',
+    marginTop: 6,
+    height: 50,
+    borderRadius: 9,
+    backgroundColor: PALETTE.black,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
   },
   buttonDisabled: {
-    opacity: 0.7,
+    opacity: 0.65,
   },
   buttonText: {
-    color: '#fff',
+    color: PALETTE.white,
     fontWeight: '700',
     fontSize: 15,
+    letterSpacing: 0.3,
   },
   link: {
     textAlign: 'center',
-    color: '#64748b',
+    color: PALETTE.mutedInk,
     fontSize: 14,
   },
   linkStrong: {
-    color: '#0f172a',
+    color: PALETTE.green,
     fontWeight: '700',
   },
 });

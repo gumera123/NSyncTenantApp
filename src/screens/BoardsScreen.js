@@ -17,6 +17,28 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { collection, getDocs, query, where, deleteDoc, doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebaseConfig';
 import { createWorkspaceInvite } from '../utils/workspaceInvite';
+import ConfirmDialog from '../components/ui/confirm-dialog';
+import { AUTH_UI_PALETTE as PALETTE } from '../config/uiTokens';
+
+function renderWorkspaceNameTitle(value) {
+  const text = String(value || '').trim();
+
+  if (!text) {
+    return 'Workspace';
+  }
+
+  if (text.length < 2) {
+    return text;
+  }
+
+  return (
+    <>
+      {text[0]}
+      <Text style={styles.pageTitleAccent}>{text[1]}</Text>
+      {text.slice(2)}
+    </>
+  );
+}
 
 export default function BoardsScreen({ navigation }) {
   const [boards, setBoards] = useState([]);
@@ -28,6 +50,7 @@ export default function BoardsScreen({ navigation }) {
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteLoading, setInviteLoading] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   const currentUserId = auth.currentUser?.uid;
   const normalizedRole = (userData?.role || '').trim().toLowerCase();
@@ -97,6 +120,11 @@ export default function BoardsScreen({ navigation }) {
   }, []);
 
   const handleDeleteBoard = async (boardId) => {
+    if (!isAdmin) {
+      Alert.alert('Admin Only', 'Only workspace admins can delete boards.');
+      return;
+    }
+
     try {
       await deleteDoc(doc(db, 'boards', boardId));
       Alert.alert('Success', 'Board deleted.');
@@ -108,18 +136,18 @@ export default function BoardsScreen({ navigation }) {
   };
 
   const handleDeleteBoardWithConfirm = (board) => {
-    Alert.alert(
-      'Delete Board',
-      `Are you sure you want to delete "${board.title}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => handleDeleteBoard(board.id),
-        },
-      ]
-    );
+    if (!isAdmin) {
+      Alert.alert('Admin Only', 'Only workspace admins can delete boards.');
+      return;
+    }
+
+    setConfirmDialog({
+      title: 'Delete Board',
+      message: `Are you sure you want to delete "${board.title}"?`,
+      confirmText: 'Delete',
+      tone: 'danger',
+      onConfirm: () => handleDeleteBoard(board.id),
+    });
   };
 
   useEffect(() => {
@@ -132,6 +160,12 @@ export default function BoardsScreen({ navigation }) {
     });
     return unsubscribe;
   }, [navigation, fetchBoards, fetchCurrentUserData]);
+
+  useEffect(() => {
+    if (!isAdmin && showInviteModal) {
+      setShowInviteModal(false);
+    }
+  }, [isAdmin, showInviteModal]);
 
   const handleInviteMember = async () => {
     if (!auth.currentUser || !isAdmin) {
@@ -229,18 +263,22 @@ export default function BoardsScreen({ navigation }) {
                 color={favoriteBoards[item.id] ? '#ffffff' : '#111827'} 
               />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.iconButton} onPress={() => navigation.navigate('EditBoard', { board: item })}>
-              <Ionicons name="create-outline" size={18} color="#111827" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.iconButton, styles.deleteIconButton]}
-              onPress={(event) => {
-                event.stopPropagation();
-                handleDeleteBoardWithConfirm(item);
-              }}
-            >
-              <Ionicons name="trash-outline" size={18} color="#dc2626" />
-            </TouchableOpacity>
+            {isAdmin ? (
+              <TouchableOpacity style={styles.iconButton} onPress={() => navigation.navigate('EditBoard', { board: item })}>
+                <Ionicons name="create-outline" size={18} color="#111827" />
+              </TouchableOpacity>
+            ) : null}
+            {isAdmin ? (
+              <TouchableOpacity
+                style={[styles.iconButton, styles.deleteIconButton]}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  handleDeleteBoardWithConfirm(item);
+                }}
+              >
+                <Ionicons name="trash-outline" size={18} color="#dc2626" />
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           <TouchableOpacity style={styles.primaryAction} onPress={() => navigation.navigate('Tasks', { board: item })}>
@@ -256,7 +294,7 @@ export default function BoardsScreen({ navigation }) {
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#2563eb" />
+          <ActivityIndicator size="large" color={PALETTE.green} />
         </View>
       </SafeAreaView>
     );
@@ -268,8 +306,8 @@ export default function BoardsScreen({ navigation }) {
       <View style={styles.container}>
         <View style={styles.headerRow}>
           <View>
-            <Text style={styles.pageTitle}>{workspaceTitle}</Text>
-            <Text style={styles.pageSubtitle}>Your workspaces</Text>
+            <Text style={styles.pageTitle}>{renderWorkspaceNameTitle(workspaceTitle)}</Text>
+            <Text style={styles.pageSubtitle}>Your workspace boards</Text>
           </View>
 
           <TouchableOpacity
@@ -277,7 +315,7 @@ export default function BoardsScreen({ navigation }) {
             onPress={() => setShowSearchInput((currentValue) => !currentValue)}
             activeOpacity={0.85}
           >
-            <Ionicons name="search-outline" size={20} color="#111827" />
+            <Ionicons name="search-outline" size={20} color={PALETTE.black} />
           </TouchableOpacity>
         </View>
 
@@ -292,10 +330,12 @@ export default function BoardsScreen({ navigation }) {
           />
         ) : null}
 
-        <TouchableOpacity style={styles.inviteButton} onPress={() => setShowInviteModal(true)}>
-          <Ionicons name="person-add-outline" size={17} color="#ffffff" />
-          <Text style={styles.inviteButtonText}>Invite Members</Text>
-        </TouchableOpacity>
+        {isAdmin ? (
+          <TouchableOpacity style={styles.inviteButton} onPress={() => setShowInviteModal(true)}>
+            <Ionicons name="person-add-outline" size={17} color="#ffffff" />
+            <Text style={styles.inviteButtonText}>Invite Members</Text>
+          </TouchableOpacity>
+        ) : null}
 
         <FlatList
           data={sortedBoards}
@@ -311,44 +351,64 @@ export default function BoardsScreen({ navigation }) {
           showsVerticalScrollIndicator={false}
         />
 
-        <Modal
-          visible={showInviteModal}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowInviteModal(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Invite Member</Text>
+        {isAdmin ? (
+          <Modal
+            visible={showInviteModal}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowInviteModal(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalCard}>
+                <Text style={styles.modalTitle}>Invite Member</Text>
 
-              <Text style={styles.modalLabel}>Registered Member Email</Text>
-              <TextInput
-                style={styles.modalInput}
-                placeholder="member@example.com"
-                placeholderTextColor="#94a3b8"
-                value={inviteEmail}
-                onChangeText={setInviteEmail}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                editable={!inviteLoading}
-              />
+                <Text style={styles.modalLabel}>Registered Member Email</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="member@example.com"
+                  placeholderTextColor="#94a3b8"
+                  value={inviteEmail}
+                  onChangeText={setInviteEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  editable={!inviteLoading}
+                />
 
-              <Text style={styles.modalHint}>All invited users are added as members by default.</Text>
+                <Text style={styles.modalHint}>All invited users are added as members by default.</Text>
 
-              <TouchableOpacity
-                style={[styles.modalPrimaryButton, inviteLoading && styles.modalPrimaryButtonDisabled]}
-                onPress={handleInviteMember}
-                disabled={inviteLoading}
-              >
-                <Text style={styles.modalPrimaryButtonText}>{inviteLoading ? 'Sending...' : 'Send Invite'}</Text>
-              </TouchableOpacity>
+                <View style={styles.modalActions}>
+                  <TouchableOpacity style={styles.modalCancelButton} onPress={() => setShowInviteModal(false)}>
+                    <Text style={styles.modalCancelText}>Cancel</Text>
+                  </TouchableOpacity>
 
-              <TouchableOpacity style={styles.modalClose} onPress={() => setShowInviteModal(false)}>
-                <Text style={styles.modalCloseText}>Cancel</Text>
-              </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalPrimaryButton, inviteLoading && styles.modalPrimaryButtonDisabled]}
+                    onPress={handleInviteMember}
+                    disabled={inviteLoading}
+                  >
+                    <Text style={styles.modalPrimaryButtonText}>{inviteLoading ? 'Sending...' : 'Send Invite'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
-          </View>
-        </Modal>
+          </Modal>
+        ) : null}
+
+        <ConfirmDialog
+          visible={Boolean(confirmDialog)}
+          title={confirmDialog?.title}
+          message={confirmDialog?.message}
+          confirmText={confirmDialog?.confirmText}
+          tone={confirmDialog?.tone}
+          onCancel={() => setConfirmDialog(null)}
+          onConfirm={async () => {
+            const action = confirmDialog?.onConfirm;
+            setConfirmDialog(null);
+            if (action) {
+              await action();
+            }
+          }}
+        />
       </View>
     </SafeAreaView>
   );
@@ -357,7 +417,7 @@ export default function BoardsScreen({ navigation }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#f4f6f8',
+    backgroundColor: PALETTE.softWhite,
   },
   container: {
     flex: 1,
@@ -379,19 +439,23 @@ const styles = StyleSheet.create({
   pageTitle: {
     fontSize: 28,
     fontWeight: '800',
-    color: '#0f172a',
+    color: PALETTE.black,
+  },
+  pageTitleAccent: {
+    color: PALETTE.green,
+    fontWeight: '800',
   },
   pageSubtitle: {
     marginTop: 4,
-    color: '#64748b',
+    color: PALETTE.mutedInk,
   },
   searchIconButton: {
     width: 42,
     height: 42,
     borderRadius: 21,
     borderWidth: 1,
-    borderColor: '#dbe1ea',
-    backgroundColor: '#fff',
+    borderColor: PALETTE.border,
+    backgroundColor: PALETTE.white,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -399,16 +463,16 @@ const styles = StyleSheet.create({
     height: 46,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#dbe1ea',
-    backgroundColor: '#fff',
+    borderColor: PALETTE.border,
+    backgroundColor: PALETTE.white,
     paddingHorizontal: 12,
     marginBottom: 12,
-    color: '#0f172a',
+    color: PALETTE.black,
   },
   inviteButton: {
     height: 44,
     borderRadius: 10,
-    backgroundColor: '#111827',
+    backgroundColor: PALETTE.black,
     marginBottom: 12,
     flexDirection: 'row',
     justifyContent: 'center',
@@ -416,7 +480,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   inviteButtonText: {
-    color: '#fff',
+    color: PALETTE.white,
     fontWeight: '700',
     fontSize: 14,
   },
@@ -424,10 +488,10 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: PALETTE.white,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: PALETTE.border,
     overflow: 'hidden',
     marginBottom: 12,
     flexDirection: 'row',
@@ -459,6 +523,8 @@ const styles = StyleSheet.create({
   },
   cardContent: {
     flex: 1,
+    borderLeftWidth: 4,
+    borderLeftColor: PALETTE.green,
     paddingHorizontal: 14,
     paddingVertical: 12,
     justifyContent: 'center',
@@ -466,11 +532,11 @@ const styles = StyleSheet.create({
   boardTitle: {
     fontSize: 17,
     fontWeight: '800',
-    color: '#0f172a',
+    color: PALETTE.black,
   },
   boardDescription: {
     marginTop: 4,
-    color: '#64748b',
+    color: PALETTE.mutedInk,
     lineHeight: 19,
     fontSize: 13,
   },
@@ -489,22 +555,22 @@ const styles = StyleSheet.create({
     height: 38,
     borderRadius: 19,
     borderWidth: 1,
-    borderColor: '#dbe1ea',
-    backgroundColor: '#fff',
+    borderColor: PALETTE.border,
+    backgroundColor: PALETTE.white,
     justifyContent: 'center',
     alignItems: 'center',
   },
   favoriteButtonActive: {
-    borderColor: '#111827',
-    backgroundColor: '#111827',
+    borderColor: PALETTE.green,
+    backgroundColor: PALETTE.green,
   },
   iconButton: {
     width: 38,
     height: 38,
     borderRadius: 19,
     borderWidth: 1,
-    borderColor: '#dbe1ea',
-    backgroundColor: '#fff',
+    borderColor: PALETTE.border,
+    backgroundColor: PALETTE.white,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -515,13 +581,13 @@ const styles = StyleSheet.create({
   primaryAction: {
     height: 38,
     borderRadius: 19,
-    backgroundColor: '#111827',
+    backgroundColor: PALETTE.black,
     justifyContent: 'center',
     alignItems: 'center',
     width: '100%',
   },
   primaryActionText: {
-    color: '#fff',
+    color: PALETTE.white,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -537,41 +603,37 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 16,
-    color: '#0f172a',
+    color: PALETTE.black,
     fontWeight: '700',
   },
   emptySub: {
     marginTop: 6,
-    color: '#64748b',
+    color: PALETTE.mutedInk,
     textAlign: 'center',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.3)',
+    backgroundColor: 'rgba(15, 23, 42, 0.42)',
     justifyContent: 'center',
     padding: 20,
   },
   modalCard: {
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    padding: 14,
+    padding: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
   },
   modalTitle: {
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
     color: '#0f172a',
-    marginBottom: 10,
-  },
-  modalClose: {
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalCloseText: {
-    color: '#64748b',
-    fontWeight: '600',
+    marginBottom: 12,
   },
   modalLabel: {
     color: '#0f172a',
@@ -589,24 +651,42 @@ const styles = StyleSheet.create({
     color: '#0f172a',
   },
   modalHint: {
-    marginTop: -2,
     marginBottom: 10,
-    color: '#64748b',
+    color: '#475569',
     fontSize: 12,
   },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+  },
+  modalCancelButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    backgroundColor: '#f8fafc',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    color: '#0f172a',
+    fontWeight: '700',
+  },
   modalPrimaryButton: {
-    height: 44,
-    borderRadius: 10,
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
     backgroundColor: '#111827',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 4,
   },
   modalPrimaryButtonDisabled: {
     opacity: 0.7,
   },
   modalPrimaryButtonText: {
     color: '#fff',
-    fontWeight: '700',
+    fontWeight: '800',
   },
 });

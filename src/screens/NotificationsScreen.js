@@ -23,6 +23,7 @@ import {
   respondToWorkspaceInvite,
 } from '../utils/workspaceInvite';
 import TeamChatScreen from './TeamChatScreen';
+import ConfirmDialog from '../components/ui/confirm-dialog';
 
 export default function NotificationsScreen() {
   const navigation = useNavigation();
@@ -32,6 +33,7 @@ export default function NotificationsScreen() {
   const [deletingNotificationId, setDeletingNotificationId] = useState('');
   const [clearingAll, setClearingAll] = useState(false);
   const [activeTab, setActiveTab] = useState('notifications');
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   const currentUserEmail = normalizeEmail(auth.currentUser?.email || '');
 
@@ -162,29 +164,24 @@ export default function NotificationsScreen() {
       return;
     }
 
-    Alert.alert(
-      'Clear notifications',
-      'Remove all notifications for your account?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear all',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setClearingAll(true);
-              await deleteAllNotificationsForUser(auth.currentUser.uid);
-              setNotifications([]);
-            } catch (error) {
-              console.log('Error clearing notifications:', error);
-              Alert.alert('Error', error.message);
-            } finally {
-              setClearingAll(false);
-            }
-          },
-        },
-      ]
-    );
+    setConfirmDialog({
+      title: 'Clear Notifications',
+      message: 'Remove all notifications for your account?',
+      confirmText: 'Clear all',
+      tone: 'danger',
+      onConfirm: async () => {
+        try {
+          setClearingAll(true);
+          await deleteAllNotificationsForUser(auth.currentUser.uid);
+          setNotifications([]);
+        } catch (error) {
+          console.log('Error clearing notifications:', error);
+          Alert.alert('Error', error.message);
+        } finally {
+          setClearingAll(false);
+        }
+      },
+    });
   };
 
   const renderRightActions = (notification) => (
@@ -281,7 +278,7 @@ export default function NotificationsScreen() {
               activeOpacity={0.7}
               style={styles.backButton}
             >
-              <Ionicons name="chevron-back" size={24} color="#2563eb" />
+              <Ionicons name="chevron-back" size={24} color="#111827" />
             </TouchableOpacity>
             <Text style={styles.backHeaderTitle}>Team Chat</Text>
             <View style={styles.backButtonPlaceholder} />
@@ -342,6 +339,22 @@ export default function NotificationsScreen() {
           </View>
         </View>
       )}
+
+      <ConfirmDialog
+        visible={Boolean(confirmDialog)}
+        title={confirmDialog?.title}
+        message={confirmDialog?.message}
+        confirmText={confirmDialog?.confirmText}
+        tone={confirmDialog?.tone}
+        onCancel={() => setConfirmDialog(null)}
+        onConfirm={async () => {
+          const action = confirmDialog?.onConfirm;
+          setConfirmDialog(null);
+          if (action) {
+            await action();
+          }
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -425,8 +438,8 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   notificationCardUnread: {
-    borderColor: '#cbd5e1',
-    backgroundColor: '#f8fbff',
+    borderColor: '#bbf7d0',
+    backgroundColor: '#f0fdf4',
   },
   notificationTopRow: {
     flexDirection: 'row',
@@ -441,7 +454,7 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   notificationDotUnread: {
-    backgroundColor: '#111827',
+    backgroundColor: '#16a34a',
   },
   notificationContent: {
     flex: 1,

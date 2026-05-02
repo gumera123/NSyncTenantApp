@@ -22,6 +22,7 @@ export default function EditBoardScreen({ route, navigation }) {
 
   const [title, setTitle] = useState(board.title || '');
   const [description, setDescription] = useState(board.description || '');
+  const [existingCoverUrl, setExistingCoverUrl] = useState(board.boardImageUrl || '');
   const [imageUri, setImageUri] = useState(null);
   const [uploading, setUploading] = useState(false);
 
@@ -44,6 +45,17 @@ export default function EditBoardScreen({ route, navigation }) {
     }
   };
 
+  const handleRemoveCover = () => {
+    if (imageUri) {
+      setImageUri(null);
+      return;
+    }
+
+    if (existingCoverUrl) {
+      setExistingCoverUrl('');
+    }
+  };
+
   const handleUpdateBoard = async () => {
     if (!title.trim()) {
       Alert.alert('Validation Error', 'Board title is required.');
@@ -60,6 +72,8 @@ export default function EditBoardScreen({ route, navigation }) {
       if (imageUri) {
         const uploadedImageUrl = await uploadImageToCloudinary(imageUri);
         updatedData.boardImageUrl = uploadedImageUrl;
+      } else if (!existingCoverUrl && board.boardImageUrl) {
+        updatedData.boardImageUrl = null;
       }
 
       await updateDoc(doc(db, 'boards', board.id), updatedData);
@@ -93,13 +107,19 @@ export default function EditBoardScreen({ route, navigation }) {
             multiline
           />
 
-          {board.boardImageUrl && !imageUri ? <Image source={{ uri: board.boardImageUrl }} style={styles.previewImage} /> : null}
+          {existingCoverUrl && !imageUri ? <Image source={{ uri: existingCoverUrl }} style={styles.previewImage} /> : null}
 
           <TouchableOpacity style={styles.secondaryButton} onPress={pickImage}>
             <Text style={styles.secondaryButtonText}>{imageUri ? 'Change Cover' : 'Pick New Cover'}</Text>
           </TouchableOpacity>
 
           {imageUri ? <Image source={{ uri: imageUri }} style={styles.previewImage} /> : null}
+
+          {existingCoverUrl || imageUri ? (
+            <TouchableOpacity style={styles.removeCoverButton} onPress={handleRemoveCover}>
+              <Text style={styles.removeCoverText}>Remove Cover Image</Text>
+            </TouchableOpacity>
+          ) : null}
 
           <TouchableOpacity style={[styles.primaryButton, uploading && styles.buttonDisabled]} onPress={handleUpdateBoard} disabled={uploading}>
             {uploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Update Board</Text>}
@@ -169,6 +189,20 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     color: '#0f172a',
     fontWeight: '600',
+  },
+  removeCoverButton: {
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    backgroundColor: '#fef2f2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  removeCoverText: {
+    color: '#dc2626',
+    fontWeight: '700',
   },
   previewImage: {
     width: '100%',

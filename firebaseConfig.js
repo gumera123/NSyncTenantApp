@@ -1,8 +1,12 @@
 // Import the functions you need from the SDKs you need
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getApp, getApps, initializeApp } from 'firebase/app';
-import { getAuth, getReactNativePersistence, initializeAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getApp, getApps, initializeApp } from "firebase/app";
+import {
+    getAuth,
+    getReactNativePersistence,
+    initializeAuth,
+} from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 // TODO: Add SDKs for Firebase products that you want to use
 // https://firebase.google.com/docs/web/setup#available-libraries
 
@@ -15,7 +19,7 @@ const firebaseConfig = {
   storageBucket: "nsynctenantapp.firebasestorage.app",
   messagingSenderId: "911719628000",
   appId: "1:911719628000:web:bc7d9e45aa0192e8a9a485",
-  measurementId: "G-T2QKVBRKNJ"
+  measurementId: "G-T2QKVBRKNJ",
 };
 
 // Initialize Firebase
@@ -34,4 +38,5 @@ try {
 
 const db = getFirestore(app);
 
-export { auth, db };
+export { app, auth, db };
+
