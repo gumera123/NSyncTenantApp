@@ -28,19 +28,7 @@ You can also run:
 
 The web dashboard is available at:
 
-- http://localhost:8081/admin
-
-Run it with:
-
-1. Install dependencies:
-
-   npm install
-
-2. Start the Expo web app:
-
-   npm run web
-
-3. Open `/admin` in your browser.
+- https://nsynctenantapp.web.app/admin
 
 Super Admin login uses Firebase Auth. The signed-in account must be allowed in one of these simple ways:
 
