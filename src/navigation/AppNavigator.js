@@ -22,9 +22,11 @@ import EditTaskScreen from "../screens/EditTaskScreen";
 import LoginScreen from "../screens/LoginScreen";
 import NotificationsScreen from "../screens/NotificationsScreen";
 import ProfileScreen from "../screens/ProfileScreen";
+import MyTeamScreen from "../screens/MyTeamScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 import ReportsScreen from "../screens/ReportsScreen";
 import TasksScreen from "../screens/TasksScreen";
+import WorkspaceInviteScannerScreen from "../screens/WorkspaceInviteScannerScreen";
 import {
     getInactiveAccountMessage,
     isAccountDeactivated,
@@ -89,6 +91,11 @@ function BoardsStack() {
         component={EditBoardScreen}
         options={{ title: "Edit Board" }}
       />
+      <Stack.Screen
+        name="WorkspaceInviteScanner"
+        component={WorkspaceInviteScannerScreen}
+        options={{ title: "Scan Workspace QR" }}
+      />
     </Stack.Navigator>
   );
 }
@@ -124,6 +131,11 @@ function ProfileStack() {
         name="Profile"
         component={ProfileScreen}
         options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="MyTeam"
+        component={MyTeamScreen}
+        options={{ title: "My Team" }}
       />
     </Stack.Navigator>
   );
@@ -166,7 +178,7 @@ function CustomTabBar({
           } else if (route.name === "NotificationsTab") {
             iconName = isFocused ? "mail" : "mail-outline";
           } else if (route.name === "ProfileTab") {
-            iconName = isFocused ? "person" : "person-outline";
+            iconName = isFocused ? "settings" : "settings-outline";
           }
 
           const onPress = () => {
@@ -362,7 +374,7 @@ function MainTabsWithListener() {
           },
         })}
         options={{
-          tabBarLabel: "Profile",
+          tabBarLabel: "Settings",
         }}
       />
     </Tab.Navigator>

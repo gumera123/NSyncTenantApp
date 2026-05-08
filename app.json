@@ -23,11 +23,10 @@
       "package": "com.jorry.NSyncTenantApp"
     },
     "web": {
-      "output": "static",
+      "output": "single",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router",
       [
         "expo-splash-screen",
         {
@@ -38,6 +37,12 @@
           "dark": {
             "backgroundColor": "#ffffff"
           }
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow NSync to scan workspace QR invites."
         }
       ],
       "@react-native-community/datetimepicker"

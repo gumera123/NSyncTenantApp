@@ -16,7 +16,8 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { collection, getDocs, query, where, deleteDoc, doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebaseConfig';
-import { createWorkspaceInvite } from '../utils/workspaceInvite';
+import QRCode from 'react-native-qrcode-svg';
+import { createWorkspaceInvite, createWorkspaceQrInvite } from '../utils/workspaceInvite';
 import ConfirmDialog from '../components/ui/confirm-dialog';
 import { AUTH_UI_PALETTE as PALETTE } from '../config/uiTokens';
 
@@ -49,7 +50,11 @@ export default function BoardsScreen({ navigation }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRoleTitle, setInviteRoleTitle] = useState('Member');
   const [inviteLoading, setInviteLoading] = useState(false);
+  const [showQrInviteModal, setShowQrInviteModal] = useState(false);
+  const [qrInvitePayload, setQrInvitePayload] = useState('');
+  const [qrInviteRoleTitle, setQrInviteRoleTitle] = useState('Member');
   const [confirmDialog, setConfirmDialog] = useState(null);
 
   const currentUserId = auth.currentUser?.uid;
@@ -184,6 +189,7 @@ export default function BoardsScreen({ navigation }) {
       await createWorkspaceInvite({
         invitedEmail: inviteEmail,
         role: 'Member',
+        workspaceRoleTitle: inviteRoleTitle,
         invitedByUid: auth.currentUser.uid,
         invitedByName: userData?.name || '',
         organizationId: userData?.organizationId || auth.currentUser.uid,
@@ -195,6 +201,36 @@ export default function BoardsScreen({ navigation }) {
       Alert.alert('Success', 'Invitation sent.');
     } catch (error) {
       console.log('Error inviting member:', error);
+      Alert.alert('Error', error.message);
+    } finally {
+      setInviteLoading(false);
+    }
+  };
+
+  const handleCreateQrInvite = async () => {
+    if (!auth.currentUser || !isAdmin) {
+      Alert.alert('Admin Only', 'Only workspace admins can create QR invitations.');
+      return;
+    }
+
+    try {
+      setInviteLoading(true);
+
+      const qrInvite = await createWorkspaceQrInvite({
+        role: 'Member',
+        workspaceRoleTitle: inviteRoleTitle,
+        invitedByUid: auth.currentUser.uid,
+        invitedByName: userData?.name || '',
+        organizationId: userData?.organizationId || auth.currentUser.uid,
+        organizationName: userData?.organizationName || userData?.name || 'Workspace',
+      });
+
+      setQrInvitePayload(qrInvite.invitePayload);
+      setQrInviteRoleTitle(inviteRoleTitle.trim() || 'Member');
+      setShowQrInviteModal(true);
+      setShowInviteModal(false);
+    } catch (error) {
+      console.log('Error creating QR invite:', error);
       Alert.alert('Error', error.message);
     } finally {
       setInviteLoading(false);
@@ -374,7 +410,19 @@ export default function BoardsScreen({ navigation }) {
                   editable={!inviteLoading}
                 />
 
-                <Text style={styles.modalHint}>All invited users are added as members by default.</Text>
+                <Text style={styles.modalLabel}>Workspace Role Title</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="Member"
+                  placeholderTextColor="#94a3b8"
+                  value={inviteRoleTitle}
+                  onChangeText={setInviteRoleTitle}
+                  editable={!inviteLoading}
+                />
+
+                <Text style={styles.modalHint}>
+                  Email invites and QR invites both start with this role label, and it can still be edited later in Profile.
+                </Text>
 
                 <View style={styles.modalActions}>
                   <TouchableOpacity style={styles.modalCancelButton} onPress={() => setShowInviteModal(false)}>
@@ -389,10 +437,69 @@ export default function BoardsScreen({ navigation }) {
                     <Text style={styles.modalPrimaryButtonText}>{inviteLoading ? 'Sending...' : 'Send Invite'}</Text>
                   </TouchableOpacity>
                 </View>
+
+                <TouchableOpacity
+                  style={[styles.secondaryActionButton, inviteLoading && styles.modalPrimaryButtonDisabled]}
+                  onPress={handleCreateQrInvite}
+                  disabled={inviteLoading}
+                >
+                  <Text style={styles.secondaryActionButtonText}>
+                    {inviteLoading ? 'Creating...' : 'Create QR Invite'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.scanActionButton}
+                  onPress={() => {
+                    setShowInviteModal(false);
+                    navigation.navigate('WorkspaceInviteScanner');
+                  }}
+                  disabled={inviteLoading}
+                >
+                  <Ionicons name="scan-outline" size={17} color={PALETTE.green} />
+                  <Text style={styles.scanActionText}>Scan QR Invite</Text>
+                </TouchableOpacity>
               </View>
             </View>
           </Modal>
         ) : null}
+
+        <Modal
+          visible={showQrInviteModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowQrInviteModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.qrModalCard}>
+              <Text style={styles.modalTitle}>Workspace QR Invite</Text>
+              <Text style={styles.modalHint}>
+                Share this QR code. Anyone who scans it can join with the role label: {qrInviteRoleTitle || 'Member'}.
+              </Text>
+
+              {qrInvitePayload ? (
+                <View style={styles.qrFrame}>
+                  <QRCode value={qrInvitePayload} size={220} color="#111827" backgroundColor="#ffffff" />
+                </View>
+              ) : null}
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={styles.modalCancelButton} onPress={() => setShowQrInviteModal(false)}>
+                  <Text style={styles.modalCancelText}>Close</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.modalPrimaryButton}
+                  onPress={() => {
+                    setShowQrInviteModal(false);
+                    navigation.navigate('WorkspaceInviteScanner');
+                  }}
+                >
+                  <Text style={styles.modalPrimaryButtonText}>Open Scanner</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         <ConfirmDialog
           visible={Boolean(confirmDialog)}
@@ -654,6 +761,55 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     color: '#475569',
     fontSize: 12,
+  },
+  secondaryActionButton: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: PALETTE.green,
+    backgroundColor: '#f0fdf4',
+    height: 46,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  secondaryActionButtonText: {
+    color: PALETTE.green,
+    fontWeight: '800',
+  },
+  scanActionButton: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    paddingVertical: 8,
+  },
+  scanActionText: {
+    color: PALETTE.green,
+    fontWeight: '800',
+  },
+  qrModalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+  },
+  qrFrame: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#f8fafc',
+    marginTop: 6,
+    marginBottom: 6,
   },
   modalActions: {
     flexDirection: 'row',

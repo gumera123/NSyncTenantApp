@@ -1,6 +1,59 @@
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 
+function createWorkspaceInviteToken() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function encodeWorkspaceInvitePayload(inviteId, inviteToken) {
+  return `nsync://workspace-invite?inviteId=${encodeURIComponent(inviteId)}&inviteToken=${encodeURIComponent(inviteToken)}`;
+}
+
+export function parseWorkspaceInviteQrPayload(value = '') {
+  const text = String(value || '').trim();
+
+  if (!text) {
+    return null;
+  }
+
+  if (text.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed?.inviteId && parsed?.inviteToken) {
+        return {
+          inviteId: String(parsed.inviteId),
+          inviteToken: String(parsed.inviteToken),
+        };
+      }
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  const queryIndex = text.indexOf('?');
+  if (queryIndex === -1) {
+    return null;
+  }
+
+  const params = new URLSearchParams(text.slice(queryIndex + 1));
+  const inviteId = params.get('inviteId') || '';
+  const inviteToken = params.get('inviteToken') || '';
+
+  if (!inviteId || !inviteToken) {
+    return null;
+  }
+
+  return { inviteId, inviteToken };
+}
+
+export function buildWorkspaceInviteQrPayload(inviteId, inviteToken) {
+  if (!inviteId || !inviteToken) {
+    return '';
+  }
+
+  return encodeWorkspaceInvitePayload(inviteId, inviteToken);
+}
+
 export function normalizeEmail(email = '') {
   return email.trim().toLowerCase();
 }
@@ -307,6 +360,7 @@ export async function syncWorkspaceAccessForUser(user) {
 export async function createWorkspaceInvite({
   invitedEmail,
   role,
+  workspaceRoleTitle = '',
   invitedByUid,
   invitedByName,
   organizationId,
@@ -327,10 +381,13 @@ export async function createWorkspaceInvite({
   const inviteRef = await addDoc(collection(db, 'invites'), {
     invitedEmail: normalizedEmail,
     role,
+    workspaceRoleTitle: workspaceRoleTitle.trim() || role || 'Member',
     invitedBy: invitedByUid,
     invitedByName: invitedByName || '',
     organizationId,
     organizationName: organizationName || '',
+    inviteType: 'email',
+    inviteToken: createWorkspaceInviteToken(),
     status: 'pending',
     createdAt: serverTimestamp(),
   });
@@ -352,8 +409,43 @@ export async function createWorkspaceInvite({
   return inviteRef;
 }
 
+export async function createWorkspaceQrInvite({
+  role = 'Member',
+  workspaceRoleTitle = 'Member',
+  invitedByUid,
+  invitedByName,
+  organizationId,
+  organizationName,
+}) {
+  if (!invitedByUid || !organizationId) {
+    throw new Error('Workspace details are incomplete.');
+  }
+
+  const inviteToken = createWorkspaceInviteToken();
+
+  const inviteRef = await addDoc(collection(db, 'invites'), {
+    invitedEmail: '',
+    role,
+    workspaceRoleTitle: (workspaceRoleTitle || role || 'Member').trim(),
+    invitedBy: invitedByUid,
+    invitedByName: invitedByName || '',
+    organizationId,
+    organizationName: organizationName || '',
+    inviteType: 'qr',
+    inviteToken,
+    status: 'pending',
+    createdAt: serverTimestamp(),
+  });
+
+  return {
+    inviteRef,
+    invitePayload: encodeWorkspaceInvitePayload(inviteRef.id, inviteToken),
+  };
+}
+
 export async function respondToWorkspaceInvite({
   inviteId,
+  inviteToken = '',
   notificationId,
   userUid,
   response,
@@ -386,11 +478,15 @@ export async function respondToWorkspaceInvite({
   const userData = userSnapshot.data();
   const normalizedUserEmail = normalizeEmail(userData.email || '');
 
+  if (invite.inviteType === 'qr' && invite.inviteToken && invite.inviteToken !== inviteToken) {
+    throw new Error('This QR invitation is invalid or has expired.');
+  }
+
   if (invite.status !== 'pending') {
     throw new Error(`This invitation was already ${invite.status || 'processed'}.`);
   }
 
-  if (normalizedUserEmail && invite.invitedEmail !== normalizedUserEmail) {
+  if (invite.invitedEmail && normalizedUserEmail && invite.invitedEmail !== normalizedUserEmail) {
     throw new Error('This invitation does not belong to the current user.');
   }
 
@@ -398,7 +494,7 @@ export async function respondToWorkspaceInvite({
   const organizationId = invite.organizationId || userUid;
 
   if (response === 'accepted') {
-    const workspaceRoleTitle = invite.role || userData.workspaceRoleTitle || 'Member';
+    const workspaceRoleTitle = invite.workspaceRoleTitle || invite.role || userData.workspaceRoleTitle || 'Member';
 
     await updateDoc(userRef, {
       role: 'Member',
