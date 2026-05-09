@@ -43,3 +43,5 @@ app-example
 /android
 
 functions/service-account-key.json.json
+
+*.apk
