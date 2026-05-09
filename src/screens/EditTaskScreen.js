@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
@@ -28,6 +27,15 @@ export default function EditTaskScreen({ route, navigation }) {
   const [dueDate, setDueDate] = useState(parseDateString(task.dueDate || ''));
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(null);
+  const [showStatusOptions, setShowStatusOptions] = useState(false);
+
+  const normalizeText = (value) => (value || '').trim();
+  const hasTaskChanges = Boolean(
+    normalizeText(title) !== normalizeText(task.title) ||
+    normalizeText(description) !== normalizeText(task.description) ||
+    status !== (task.status || 'To Do') ||
+    formatDateToString(dueDate) !== (task.dueDate || '')
+  );
 
   const handleDateChange = (event, selectedDate) => {
     if (Platform.OS === 'android') {
@@ -89,8 +97,7 @@ export default function EditTaskScreen({ route, navigation }) {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>Edit Task</Text>
-        <Text style={styles.subtitle}>Update task details.</Text>
+        
 
         <View style={styles.card}>
           <Text style={styles.label}>Task Title</Text>
@@ -107,11 +114,30 @@ export default function EditTaskScreen({ route, navigation }) {
 
           <Text style={styles.label}>Status</Text>
           <View style={styles.pickerWrap}>
-            <Picker selectedValue={status} onValueChange={(value) => setStatus(value)}>
-              <Picker.Item label="To Do" value="To Do" />
-              <Picker.Item label="In Progress" value="In Progress" />
-              <Picker.Item label="Done" value="Done" />
-            </Picker>
+            <TouchableOpacity
+              style={styles.dropdownButton}
+              onPress={() => setShowStatusOptions((s) => !s)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.dropdownText}>{status}</Text>
+            </TouchableOpacity>
+
+            {showStatusOptions ? (
+              <View style={styles.dropdownList}>
+                {['To Do', 'In Progress', 'Done'].map((opt, idx, arr) => (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[styles.dropdownItem, idx === arr.length - 1 ? { borderBottomWidth: 0 } : null]}
+                    onPress={() => {
+                      setStatus(opt);
+                      setShowStatusOptions(false);
+                    }}
+                  >
+                    <Text style={styles.dropdownItemText}>{opt}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
           </View>
 
           <TouchableOpacity style={styles.dateButton} onPress={() => setShowDatePicker(true)}>
@@ -134,7 +160,11 @@ export default function EditTaskScreen({ route, navigation }) {
             </TouchableOpacity>
           ) : null}
 
-          <TouchableOpacity style={styles.primaryButton} onPress={handleUpdateTask}>
+          <TouchableOpacity
+            style={[styles.primaryButton, !hasTaskChanges && styles.buttonDisabled]}
+            onPress={handleUpdateTask}
+            disabled={!hasTaskChanges}
+          >
             <Text style={styles.primaryButtonText}>Update Task</Text>
           </TouchableOpacity>
 
@@ -217,6 +247,32 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     overflow: 'hidden',
   },
+  dropdownButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  dropdownText: {
+    color: '#0f172a',
+    fontWeight: '600',
+  },
+  dropdownList: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#dbe1ea',
+    borderRadius: 8,
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  dropdownItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  dropdownItemText: {
+    color: '#0f172a',
+    fontWeight: '600',
+  },
   dateButton: {
     borderWidth: 1,
     borderColor: '#dbe1ea',
@@ -271,5 +327,8 @@ const styles = StyleSheet.create({
   deleteButtonText: {
     color: '#dc2626',
     fontWeight: '700',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
 });

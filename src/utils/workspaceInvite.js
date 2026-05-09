@@ -1,5 +1,18 @@
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
-import { db } from '../../firebaseConfig';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
+  writeBatch,
+} from "firebase/firestore";
+import { db } from "../../firebaseConfig";
 
 function createWorkspaceInviteToken() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -9,14 +22,14 @@ function encodeWorkspaceInvitePayload(inviteId, inviteToken) {
   return `nsync://workspace-invite?inviteId=${encodeURIComponent(inviteId)}&inviteToken=${encodeURIComponent(inviteToken)}`;
 }
 
-export function parseWorkspaceInviteQrPayload(value = '') {
-  const text = String(value || '').trim();
+export function parseWorkspaceInviteQrPayload(value = "") {
+  const text = String(value || "").trim();
 
   if (!text) {
     return null;
   }
 
-  if (text.startsWith('{')) {
+  if (text.startsWith("{")) {
     try {
       const parsed = JSON.parse(text);
       if (parsed?.inviteId && parsed?.inviteToken) {
@@ -30,14 +43,14 @@ export function parseWorkspaceInviteQrPayload(value = '') {
     }
   }
 
-  const queryIndex = text.indexOf('?');
+  const queryIndex = text.indexOf("?");
   if (queryIndex === -1) {
     return null;
   }
 
   const params = new URLSearchParams(text.slice(queryIndex + 1));
-  const inviteId = params.get('inviteId') || '';
-  const inviteToken = params.get('inviteToken') || '';
+  const inviteId = params.get("inviteId") || "";
+  const inviteToken = params.get("inviteToken") || "";
 
   if (!inviteId || !inviteToken) {
     return null;
@@ -48,34 +61,39 @@ export function parseWorkspaceInviteQrPayload(value = '') {
 
 export function buildWorkspaceInviteQrPayload(inviteId, inviteToken) {
   if (!inviteId || !inviteToken) {
-    return '';
+    return "";
   }
 
   return encodeWorkspaceInvitePayload(inviteId, inviteToken);
 }
 
-export function normalizeEmail(email = '') {
+export function normalizeEmail(email = "") {
   return email.trim().toLowerCase();
 }
 
 function upsertWorkspaceMembership(memberships = [], membership = {}) {
-  const organizationId = membership.organizationId || '';
+  const organizationId = membership.organizationId || "";
 
   if (!organizationId) {
     return Array.isArray(memberships) ? memberships.filter(Boolean) : [];
   }
 
-  const normalizedMemberships = Array.isArray(memberships) ? memberships.filter(Boolean) : [];
-  const filteredMemberships = normalizedMemberships.filter((currentMembership) => currentMembership.organizationId !== organizationId);
+  const normalizedMemberships = Array.isArray(memberships)
+    ? memberships.filter(Boolean)
+    : [];
+  const filteredMemberships = normalizedMemberships.filter(
+    (currentMembership) => currentMembership.organizationId !== organizationId,
+  );
 
   return [
     ...filteredMemberships,
     {
       organizationId,
-      organizationName: membership.organizationName || '',
-      role: membership.role || 'Member',
-      workspaceRoleTitle: membership.workspaceRoleTitle || membership.role || 'Member',
-      invitedBy: membership.invitedBy || '',
+      organizationName: membership.organizationName || "",
+      role: membership.role || "Member",
+      workspaceRoleTitle:
+        membership.workspaceRoleTitle || membership.role || "Member",
+      invitedBy: membership.invitedBy || "",
     },
   ];
 }
@@ -88,9 +106,9 @@ export async function getPendingInviteForEmail(email) {
   }
 
   const inviteQuery = query(
-    collection(db, 'invites'),
-    where('invitedEmail', '==', normalizedEmail),
-    where('status', '==', 'pending')
+    collection(db, "invites"),
+    where("invitedEmail", "==", normalizedEmail),
+    where("status", "==", "pending"),
   );
 
   const snapshot = await getDocs(inviteQuery);
@@ -118,8 +136,8 @@ export async function getRegisteredUserByEmail(email) {
   }
 
   const userQuery = query(
-    collection(db, 'users'),
-    where('email', '==', normalizedEmail)
+    collection(db, "users"),
+    where("email", "==", normalizedEmail),
   );
 
   const snapshot = await getDocs(userQuery);
@@ -141,15 +159,15 @@ export async function createNotification({
   title,
   message,
   type,
-  actorUid = '',
-  organizationId = '',
+  actorUid = "",
+  organizationId = "",
   metadata = {},
 }) {
   if (!targetUserId) {
     return null;
   }
 
-  return addDoc(collection(db, 'notifications'), {
+  return addDoc(collection(db, "notifications"), {
     targetUserId,
     title,
     message,
@@ -168,7 +186,10 @@ export async function loadUserNotifications(userUid) {
   }
 
   const snapshot = await getDocs(
-    query(collection(db, 'notifications'), where('targetUserId', '==', userUid))
+    query(
+      collection(db, "notifications"),
+      where("targetUserId", "==", userUid),
+    ),
   );
 
   return snapshot.docs
@@ -193,7 +214,7 @@ export async function markNotificationsAsRead(notificationIds = []) {
   const batch = writeBatch(db);
 
   validNotificationIds.forEach((notificationId) => {
-    batch.update(doc(db, 'notifications', notificationId), {
+    batch.update(doc(db, "notifications", notificationId), {
       isRead: true,
       updatedAt: serverTimestamp(),
     });
@@ -204,19 +225,22 @@ export async function markNotificationsAsRead(notificationIds = []) {
 
 export async function deleteNotificationById(notificationId) {
   if (!notificationId) {
-    throw new Error('Notification not found.');
+    throw new Error("Notification not found.");
   }
 
-  await deleteDoc(doc(db, 'notifications', notificationId));
+  await deleteDoc(doc(db, "notifications", notificationId));
 }
 
 export async function deleteAllNotificationsForUser(userUid) {
   if (!userUid) {
-    throw new Error('User not found.');
+    throw new Error("User not found.");
   }
 
   const snapshot = await getDocs(
-    query(collection(db, 'notifications'), where('targetUserId', '==', userUid))
+    query(
+      collection(db, "notifications"),
+      where("targetUserId", "==", userUid),
+    ),
   );
 
   if (snapshot.empty) {
@@ -226,7 +250,7 @@ export async function deleteAllNotificationsForUser(userUid) {
   const batch = writeBatch(db);
 
   snapshot.docs.forEach((notificationDoc) => {
-    batch.delete(doc(db, 'notifications', notificationDoc.id));
+    batch.delete(doc(db, "notifications", notificationDoc.id));
   });
 
   await batch.commit();
@@ -244,24 +268,24 @@ async function notifyAdminMemberLogin({
     return;
   }
 
-  const signInKey = user.metadata?.lastSignInTime || '';
+  const signInKey = user.metadata?.lastSignInTime || "";
 
   if (!signInKey || userData.lastNotifiedSignInAt === signInKey) {
     return;
   }
 
-  const actorName = userData.name || user.email || 'A member';
+  const actorName = userData.name || user.email || "A member";
 
   await createNotification({
     targetUserId: organizationId,
-    title: 'Member logged in',
+    title: "Member logged in",
     message: `${actorName} logged in to your workspace.`,
-    type: 'member_login',
+    type: "member_login",
     actorUid: user.uid,
     organizationId,
     metadata: {
       memberUid: user.uid,
-      memberEmail: normalizeEmail(user.email || ''),
+      memberEmail: normalizeEmail(user.email || ""),
       signInAt: signInKey,
     },
   });
@@ -277,7 +301,7 @@ export async function syncWorkspaceAccessForUser(user) {
     return null;
   }
 
-  const userRef = doc(db, 'users', user.uid);
+  const userRef = doc(db, "users", user.uid);
   const userSnapshot = await getDoc(userRef);
 
   if (!userSnapshot.exists()) {
@@ -285,21 +309,32 @@ export async function syncWorkspaceAccessForUser(user) {
   }
 
   const userData = userSnapshot.data();
-  const currentRole = (userData.role || '').toLowerCase();
-  const currentOrganizationId = userData.organizationId || '';
+  const currentRole = (userData.role || "").toLowerCase();
+  const currentOrganizationId = userData.organizationId || "";
 
   // Ensure every account has a remembered home workspace to support leave/rejoin flows.
   if (!userData.homeOrganizationId) {
     await updateDoc(userRef, {
       homeOrganizationId: user.uid,
-      homeOrganizationName: userData.homeOrganizationName || userData.organizationName || userData.name || '',
-      workspaceMemberships: upsertWorkspaceMembership(userData.workspaceMemberships, {
-        organizationId: user.uid,
-        organizationName: userData.homeOrganizationName || userData.organizationName || userData.name || '',
-        role: userData.role || 'Admin',
-        workspaceRoleTitle: userData.workspaceRoleTitle || 'Workspace Owner',
-        invitedBy: '',
-      }),
+      homeOrganizationName:
+        userData.homeOrganizationName ||
+        userData.organizationName ||
+        userData.name ||
+        "",
+      workspaceMemberships: upsertWorkspaceMembership(
+        userData.workspaceMemberships,
+        {
+          organizationId: user.uid,
+          organizationName:
+            userData.homeOrganizationName ||
+            userData.organizationName ||
+            userData.name ||
+            "",
+          role: userData.role || "Admin",
+          workspaceRoleTitle: userData.workspaceRoleTitle || "Workspace Owner",
+          invitedBy: "",
+        },
+      ),
       updatedAt: serverTimestamp(),
     });
   }
@@ -307,44 +342,56 @@ export async function syncWorkspaceAccessForUser(user) {
   const invite = await getPendingInviteForEmail(user.email);
 
   if (invite) {
-    return { appliedInvite: false, role: userData.role || null, invitePending: true, invite };
+    return {
+      appliedInvite: false,
+      role: userData.role || null,
+      invitePending: true,
+      invite,
+    };
   }
 
-  if (currentRole === 'admin') {
+  if (currentRole === "admin") {
     if (!currentOrganizationId) {
       await updateDoc(userRef, {
         organizationId: user.uid,
-        workspaceMemberships: upsertWorkspaceMembership(userData.workspaceMemberships, {
-          organizationId: user.uid,
-          organizationName: userData.organizationName || userData.name || '',
-          role: 'Admin',
-          workspaceRoleTitle: userData.workspaceRoleTitle || 'Workspace Owner',
-          invitedBy: '',
-        }),
+        workspaceMemberships: upsertWorkspaceMembership(
+          userData.workspaceMemberships,
+          {
+            organizationId: user.uid,
+            organizationName: userData.organizationName || userData.name || "",
+            role: "Admin",
+            workspaceRoleTitle:
+              userData.workspaceRoleTitle || "Workspace Owner",
+            invitedBy: "",
+          },
+        ),
         updatedAt: serverTimestamp(),
       });
     }
 
-    return { appliedInvite: false, role: 'Admin' };
+    return { appliedInvite: false, role: "Admin" };
   }
 
   if (!currentRole && !currentOrganizationId) {
     await updateDoc(userRef, {
-      role: 'Admin',
-      workspaceRoleTitle: userData.workspaceRoleTitle || 'Workspace Owner',
+      role: "Admin",
+      workspaceRoleTitle: userData.workspaceRoleTitle || "Workspace Owner",
       organizationId: user.uid,
-      organizationName: userData.organizationName || userData.name || '',
-      workspaceMemberships: upsertWorkspaceMembership(userData.workspaceMemberships, {
-        organizationId: user.uid,
-        organizationName: userData.organizationName || userData.name || '',
-        role: 'Admin',
-        workspaceRoleTitle: userData.workspaceRoleTitle || 'Workspace Owner',
-        invitedBy: '',
-      }),
+      organizationName: userData.organizationName || userData.name || "",
+      workspaceMemberships: upsertWorkspaceMembership(
+        userData.workspaceMemberships,
+        {
+          organizationId: user.uid,
+          organizationName: userData.organizationName || userData.name || "",
+          role: "Admin",
+          workspaceRoleTitle: userData.workspaceRoleTitle || "Workspace Owner",
+          invitedBy: "",
+        },
+      ),
       updatedAt: serverTimestamp(),
     });
 
-    return { appliedInvite: false, role: 'Admin' };
+    return { appliedInvite: false, role: "Admin" };
   }
 
   await notifyAdminMemberLogin({
@@ -360,7 +407,7 @@ export async function syncWorkspaceAccessForUser(user) {
 export async function createWorkspaceInvite({
   invitedEmail,
   role,
-  workspaceRoleTitle = '',
+  workspaceRoleTitle = "",
   invitedByUid,
   invitedByName,
   organizationId,
@@ -369,34 +416,36 @@ export async function createWorkspaceInvite({
   const normalizedEmail = normalizeEmail(invitedEmail);
 
   if (!normalizedEmail) {
-    throw new Error('Invitation email is required.');
+    throw new Error("Invitation email is required.");
   }
 
   const registeredUser = await getRegisteredUserByEmail(normalizedEmail);
 
   if (!registeredUser) {
-    throw new Error('This email must already be registered before it can be invited.');
+    throw new Error(
+      "This email must already be registered before it can be invited.",
+    );
   }
 
-  const inviteRef = await addDoc(collection(db, 'invites'), {
+  const inviteRef = await addDoc(collection(db, "invites"), {
     invitedEmail: normalizedEmail,
     role,
-    workspaceRoleTitle: workspaceRoleTitle.trim() || role || 'Member',
+    workspaceRoleTitle: workspaceRoleTitle.trim() || role || "Member",
     invitedBy: invitedByUid,
-    invitedByName: invitedByName || '',
+    invitedByName: invitedByName || "",
     organizationId,
-    organizationName: organizationName || '',
-    inviteType: 'email',
+    organizationName: organizationName || "",
+    inviteType: "email",
     inviteToken: createWorkspaceInviteToken(),
-    status: 'pending',
+    status: "pending",
     createdAt: serverTimestamp(),
   });
 
   await createNotification({
     targetUserId: registeredUser.id,
-    title: 'Workspace invitation',
-    message: `${invitedByName || 'An admin'} invited you to join a workspace as ${role}.`,
-    type: 'invite_received',
+    title: "Workspace invitation",
+    message: `${invitedByName || "An admin"} invited you to join a workspace as ${role}.`,
+    type: "invite_received",
     actorUid: invitedByUid,
     organizationId,
     metadata: {
@@ -410,30 +459,30 @@ export async function createWorkspaceInvite({
 }
 
 export async function createWorkspaceQrInvite({
-  role = 'Member',
-  workspaceRoleTitle = 'Member',
+  role = "Member",
+  workspaceRoleTitle = "Member",
   invitedByUid,
   invitedByName,
   organizationId,
   organizationName,
 }) {
   if (!invitedByUid || !organizationId) {
-    throw new Error('Workspace details are incomplete.');
+    throw new Error("Workspace details are incomplete.");
   }
 
   const inviteToken = createWorkspaceInviteToken();
 
-  const inviteRef = await addDoc(collection(db, 'invites'), {
-    invitedEmail: '',
+  const inviteRef = await addDoc(collection(db, "invites"), {
+    invitedEmail: "",
     role,
-    workspaceRoleTitle: (workspaceRoleTitle || role || 'Member').trim(),
+    workspaceRoleTitle: (workspaceRoleTitle || role || "Member").trim(),
     invitedBy: invitedByUid,
-    invitedByName: invitedByName || '',
+    invitedByName: invitedByName || "",
     organizationId,
-    organizationName: organizationName || '',
-    inviteType: 'qr',
+    organizationName: organizationName || "",
+    inviteType: "qr",
     inviteToken,
-    status: 'pending',
+    status: "pending",
     createdAt: serverTimestamp(),
   });
 
@@ -445,21 +494,21 @@ export async function createWorkspaceQrInvite({
 
 export async function respondToWorkspaceInvite({
   inviteId,
-  inviteToken = '',
+  inviteToken = "",
   notificationId,
   userUid,
   response,
 }) {
   if (!inviteId || !userUid) {
-    throw new Error('Invitation details are incomplete.');
+    throw new Error("Invitation details are incomplete.");
   }
 
-  if (!['accepted', 'declined'].includes(response)) {
-    throw new Error('Invalid invitation response.');
+  if (!["accepted", "declined"].includes(response)) {
+    throw new Error("Invalid invitation response.");
   }
 
-  const inviteRef = doc(db, 'invites', inviteId);
-  const userRef = doc(db, 'users', userUid);
+  const inviteRef = doc(db, "invites", inviteId);
+  const userRef = doc(db, "users", userUid);
 
   const [inviteSnapshot, userSnapshot] = await Promise.all([
     getDoc(inviteRef),
@@ -467,68 +516,90 @@ export async function respondToWorkspaceInvite({
   ]);
 
   if (!inviteSnapshot.exists()) {
-    throw new Error('Invitation no longer exists.');
+    throw new Error("Invitation no longer exists.");
   }
 
   if (!userSnapshot.exists()) {
-    throw new Error('User profile was not found.');
+    throw new Error("User profile was not found.");
   }
 
   const invite = inviteSnapshot.data();
   const userData = userSnapshot.data();
-  const normalizedUserEmail = normalizeEmail(userData.email || '');
+  const normalizedUserEmail = normalizeEmail(userData.email || "");
 
-  if (invite.inviteType === 'qr' && invite.inviteToken && invite.inviteToken !== inviteToken) {
-    throw new Error('This QR invitation is invalid or has expired.');
+  if (
+    invite.inviteType === "qr" &&
+    invite.inviteToken &&
+    invite.inviteToken !== inviteToken
+  ) {
+    throw new Error("This QR invitation is invalid or has expired.");
   }
 
-  if (invite.status !== 'pending') {
-    throw new Error(`This invitation was already ${invite.status || 'processed'}.`);
+  if (invite.status !== "pending") {
+    throw new Error(
+      `This invitation was already ${invite.status || "processed"}.`,
+    );
   }
 
-  if (invite.invitedEmail && normalizedUserEmail && invite.invitedEmail !== normalizedUserEmail) {
-    throw new Error('This invitation does not belong to the current user.');
+  if (
+    invite.invitedEmail &&
+    normalizedUserEmail &&
+    invite.invitedEmail !== normalizedUserEmail
+  ) {
+    throw new Error("This invitation does not belong to the current user.");
   }
 
-  const actorName = userData.name || userData.email || 'A member';
+  const actorName = userData.name || userData.email || "A member";
   const organizationId = invite.organizationId || userUid;
 
-  if (response === 'accepted') {
-    const workspaceRoleTitle = invite.workspaceRoleTitle || invite.role || userData.workspaceRoleTitle || 'Member';
+  if (response === "accepted") {
+    const workspaceRoleTitle =
+      invite.workspaceRoleTitle ||
+      invite.role ||
+      userData.workspaceRoleTitle ||
+      "Member";
 
     await updateDoc(userRef, {
-      role: 'Member',
+      role: "Member",
       workspaceRoleTitle,
       organizationId,
-      organizationName: invite.organizationName || userData.organizationName || '',
-      invitedBy: invite.invitedBy || '',
-      workspaceMemberships: upsertWorkspaceMembership(userData.workspaceMemberships, {
-        organizationId: userData.organizationId || userUid,
-        organizationName: userData.organizationName || '',
-        role: userData.role || 'Member',
-        workspaceRoleTitle: userData.workspaceRoleTitle || 'Member',
-        invitedBy: userData.invitedBy || '',
-      }).concat(
+      organizationName:
+        invite.organizationName || userData.organizationName || "",
+      invitedBy: invite.invitedBy || "",
+      workspaceMemberships: upsertWorkspaceMembership(
+        userData.workspaceMemberships,
+        {
+          organizationId: userData.organizationId || userUid,
+          organizationName: userData.organizationName || "",
+          role: userData.role || "Member",
+          workspaceRoleTitle: userData.workspaceRoleTitle || "Member",
+          invitedBy: userData.invitedBy || "",
+        },
+      ).concat(
         upsertWorkspaceMembership([], {
           organizationId,
-          organizationName: invite.organizationName || '',
-          role: 'Member',
+          organizationName: invite.organizationName || "",
+          role: "Member",
           workspaceRoleTitle,
-          invitedBy: invite.invitedBy || '',
-        })
+          invitedBy: invite.invitedBy || "",
+        }),
       ),
       homeOrganizationId: userData.homeOrganizationId || userUid,
-      homeOrganizationName: userData.homeOrganizationName || userData.organizationName || userData.name || '',
-      linkedOrganizationId: '',
-      linkedOrganizationName: '',
-      linkedWorkspaceRoleTitle: '',
-      linkedRole: '',
-      linkedInvitedBy: '',
+      homeOrganizationName:
+        userData.homeOrganizationName ||
+        userData.organizationName ||
+        userData.name ||
+        "",
+      linkedOrganizationId: "",
+      linkedOrganizationName: "",
+      linkedWorkspaceRoleTitle: "",
+      linkedRole: "",
+      linkedInvitedBy: "",
       updatedAt: serverTimestamp(),
     });
 
     await updateDoc(inviteRef, {
-      status: 'accepted',
+      status: "accepted",
       acceptedAt: serverTimestamp(),
       acceptedByUid: userUid,
       acceptedByEmail: normalizedUserEmail,
@@ -538,9 +609,9 @@ export async function respondToWorkspaceInvite({
     if (invite.invitedBy) {
       await createNotification({
         targetUserId: invite.invitedBy,
-        title: 'Invitation accepted',
+        title: "Invitation accepted",
         message: `${actorName} accepted your workspace invitation.`,
-        type: 'invite_accepted',
+        type: "invite_accepted",
         actorUid: userUid,
         organizationId,
         metadata: {
@@ -553,7 +624,7 @@ export async function respondToWorkspaceInvite({
     }
   } else {
     await updateDoc(inviteRef, {
-      status: 'declined',
+      status: "declined",
       declinedAt: serverTimestamp(),
       declinedByUid: userUid,
       declinedByEmail: normalizedUserEmail,
@@ -563,23 +634,23 @@ export async function respondToWorkspaceInvite({
     if (invite.invitedBy) {
       await createNotification({
         targetUserId: invite.invitedBy,
-        title: 'Invitation declined',
+        title: "Invitation declined",
         message: `${actorName} declined your workspace invitation.`,
-        type: 'invite_declined',
+        type: "invite_declined",
         actorUid: userUid,
         organizationId,
         metadata: {
           inviteId,
           memberUid: userUid,
           memberEmail: normalizedUserEmail,
-          role: invite.role || 'Member',
+          role: invite.role || "Member",
         },
       });
     }
   }
 
   if (notificationId) {
-    await updateDoc(doc(db, 'notifications', notificationId), {
+    await updateDoc(doc(db, "notifications", notificationId), {
       isRead: true,
       respondedAt: serverTimestamp(),
       response,
@@ -599,7 +670,10 @@ export async function loadWorkspaceMembers(organizationId, currentUserUid) {
   }
 
   const snapshot = await getDocs(
-    query(collection(db, 'users'), where('organizationId', '==', organizationId))
+    query(
+      collection(db, "users"),
+      where("organizationId", "==", organizationId),
+    ),
   );
 
   const members = snapshot.docs.map((userDoc) => ({
@@ -607,8 +681,11 @@ export async function loadWorkspaceMembers(organizationId, currentUserUid) {
     ...userDoc.data(),
   }));
 
-  if (currentUserUid && !members.some((member) => member.id === currentUserUid)) {
-    const currentUserDoc = await getDoc(doc(db, 'users', currentUserUid));
+  if (
+    currentUserUid &&
+    !members.some((member) => member.id === currentUserUid)
+  ) {
+    const currentUserDoc = await getDoc(doc(db, "users", currentUserUid));
     if (currentUserDoc.exists()) {
       members.unshift({ id: currentUserDoc.id, ...currentUserDoc.data() });
     }
@@ -623,8 +700,8 @@ export function subscribeToWorkspaceMembers(organizationId, onMembersUpdate) {
   }
 
   const membersQuery = query(
-    collection(db, 'users'),
-    where('organizationId', '==', organizationId)
+    collection(db, "users"),
+    where("organizationId", "==", organizationId),
   );
 
   const unsubscribe = onSnapshot(membersQuery, (snapshot) => {
@@ -645,26 +722,26 @@ export async function updateWorkspaceMemberRoleTitle({
   workspaceRoleTitle,
 }) {
   if (!memberUid || !organizationId) {
-    throw new Error('Member details are incomplete.');
+    throw new Error("Member details are incomplete.");
   }
 
-  const cleanedRoleTitle = (workspaceRoleTitle || '').trim();
+  const cleanedRoleTitle = (workspaceRoleTitle || "").trim();
 
   if (!cleanedRoleTitle) {
-    throw new Error('Role title is required.');
+    throw new Error("Role title is required.");
   }
 
-  const memberRef = doc(db, 'users', memberUid);
+  const memberRef = doc(db, "users", memberUid);
   const memberSnapshot = await getDoc(memberRef);
 
   if (!memberSnapshot.exists()) {
-    throw new Error('Member not found.');
+    throw new Error("Member not found.");
   }
 
   const memberData = memberSnapshot.data();
 
-  if ((memberData.organizationId || '') !== organizationId) {
-    throw new Error('Member is not in this workspace.');
+  if ((memberData.organizationId || "") !== organizationId) {
+    throw new Error("Member is not in this workspace.");
   }
 
   await updateDoc(memberRef, {
@@ -679,7 +756,11 @@ export async function loadWorkspaceInvites(organizationId) {
   }
 
   const snapshot = await getDocs(
-    query(collection(db, 'invites'), where('organizationId', '==', organizationId), where('status', '==', 'pending'))
+    query(
+      collection(db, "invites"),
+      where("organizationId", "==", organizationId),
+      where("status", "==", "pending"),
+    ),
   );
 
   return snapshot.docs.map((inviteDoc) => ({
@@ -690,52 +771,53 @@ export async function loadWorkspaceInvites(organizationId) {
 
 export async function leaveCurrentWorkspace(userUid) {
   if (!userUid) {
-    throw new Error('User not found.');
+    throw new Error("User not found.");
   }
 
-  const userRef = doc(db, 'users', userUid);
+  const userRef = doc(db, "users", userUid);
   const userSnapshot = await getDoc(userRef);
 
   if (!userSnapshot.exists()) {
-    throw new Error('User profile was not found.');
+    throw new Error("User profile was not found.");
   }
 
   const userData = userSnapshot.data();
   const currentOrganizationId = userData.organizationId || userUid;
 
   if (currentOrganizationId === userUid) {
-    throw new Error('You are already in your own workspace.');
+    throw new Error("You are already in your own workspace.");
   }
 
   const homeOrganizationId = userData.homeOrganizationId || userUid;
-  const homeOrganizationName = userData.homeOrganizationName || userData.name || 'My Workspace';
+  const homeOrganizationName =
+    userData.homeOrganizationName || userData.name || "My Workspace";
 
   await updateDoc(userRef, {
-    role: 'Admin',
-    workspaceRoleTitle: 'Workspace Owner',
+    role: "Admin",
+    workspaceRoleTitle: "Workspace Owner",
     organizationId: homeOrganizationId,
     organizationName: homeOrganizationName,
-    invitedBy: '',
-    linkedOrganizationId: '',
-    linkedOrganizationName: '',
-    linkedWorkspaceRoleTitle: '',
-    linkedRole: '',
-    linkedInvitedBy: '',
+    invitedBy: "",
+    linkedOrganizationId: "",
+    linkedOrganizationName: "",
+    linkedWorkspaceRoleTitle: "",
+    linkedRole: "",
+    linkedInvitedBy: "",
     updatedAt: serverTimestamp(),
   });
 
   if (currentOrganizationId && currentOrganizationId !== userUid) {
-    const actorName = userData.name || userData.email || 'A member';
+    const actorName = userData.name || userData.email || "A member";
     await createNotification({
       targetUserId: currentOrganizationId,
-      title: 'Member left workspace',
+      title: "Member left workspace",
       message: `${actorName} left your workspace.`,
-      type: 'member_left_workspace',
+      type: "member_left_workspace",
       actorUid: userUid,
       organizationId: currentOrganizationId,
       metadata: {
         memberUid: userUid,
-        memberEmail: normalizeEmail(userData.email || ''),
+        memberEmail: normalizeEmail(userData.email || ""),
       },
     });
   }
@@ -743,80 +825,82 @@ export async function leaveCurrentWorkspace(userUid) {
 
 export async function switchToPersonalWorkspace(userUid) {
   if (!userUid) {
-    throw new Error('User not found.');
+    throw new Error("User not found.");
   }
 
-  const userRef = doc(db, 'users', userUid);
+  const userRef = doc(db, "users", userUid);
   const userSnapshot = await getDoc(userRef);
 
   if (!userSnapshot.exists()) {
-    throw new Error('User profile was not found.');
+    throw new Error("User profile was not found.");
   }
 
   const userData = userSnapshot.data();
   const currentOrganizationId = userData.organizationId || userUid;
 
   if (currentOrganizationId === userUid) {
-    throw new Error('You are already in your personal workspace.');
+    throw new Error("You are already in your personal workspace.");
   }
 
   const homeOrganizationId = userData.homeOrganizationId || userUid;
-  const homeOrganizationName = userData.homeOrganizationName || userData.name || 'My Workspace';
+  const homeOrganizationName =
+    userData.homeOrganizationName || userData.name || "My Workspace";
 
   await updateDoc(userRef, {
-    role: 'Admin',
-    workspaceRoleTitle: 'Workspace Owner',
+    role: "Admin",
+    workspaceRoleTitle: "Workspace Owner",
     organizationId: homeOrganizationId,
     organizationName: homeOrganizationName,
-    invitedBy: '',
+    invitedBy: "",
     linkedOrganizationId: currentOrganizationId,
-    linkedOrganizationName: userData.organizationName || '',
-    linkedWorkspaceRoleTitle: userData.workspaceRoleTitle || 'Member',
-    linkedRole: userData.role || 'Member',
-    linkedInvitedBy: userData.invitedBy || '',
+    linkedOrganizationName: userData.organizationName || "",
+    linkedWorkspaceRoleTitle: userData.workspaceRoleTitle || "Member",
+    linkedRole: userData.role || "Member",
+    linkedInvitedBy: userData.invitedBy || "",
     updatedAt: serverTimestamp(),
   });
 }
 
 export async function switchBackToLinkedWorkspace(userUid) {
   if (!userUid) {
-    throw new Error('User not found.');
+    throw new Error("User not found.");
   }
 
-  const userRef = doc(db, 'users', userUid);
+  const userRef = doc(db, "users", userUid);
   const userSnapshot = await getDoc(userRef);
 
   if (!userSnapshot.exists()) {
-    throw new Error('User profile was not found.');
+    throw new Error("User profile was not found.");
   }
 
   const userData = userSnapshot.data();
-  const linkedOrganizationId = userData.linkedOrganizationId || '';
+  const linkedOrganizationId = userData.linkedOrganizationId || "";
 
   if (!linkedOrganizationId) {
-    throw new Error('No linked workspace found.');
+    throw new Error("No linked workspace found.");
   }
 
   await updateDoc(userRef, {
-    role: userData.linkedRole || 'Member',
-    workspaceRoleTitle: userData.linkedWorkspaceRoleTitle || 'Member',
+    role: userData.linkedRole || "Member",
+    workspaceRoleTitle: userData.linkedWorkspaceRoleTitle || "Member",
     organizationId: linkedOrganizationId,
-    organizationName: userData.linkedOrganizationName || userData.organizationName || '',
-    invitedBy: userData.linkedInvitedBy || userData.invitedBy || '',
+    organizationName:
+      userData.linkedOrganizationName || userData.organizationName || "",
+    invitedBy: userData.linkedInvitedBy || userData.invitedBy || "",
     updatedAt: serverTimestamp(),
   });
 }
 
 export async function switchToWorkspaceMembership(userUid, membership) {
   if (!userUid || !membership?.organizationId) {
-    throw new Error('Workspace details are incomplete.');
+    throw new Error("Workspace details are incomplete.");
   }
 
-  const userRef = doc(db, 'users', userUid);
+  const userRef = doc(db, "users", userUid);
   const userSnapshot = await getDoc(userRef);
 
   if (!userSnapshot.exists()) {
-    throw new Error('User profile was not found.');
+    throw new Error("User profile was not found.");
   }
 
   const userData = userSnapshot.data();
@@ -828,35 +912,45 @@ export async function switchToWorkspaceMembership(userUid, membership) {
   }
 
   await updateDoc(userRef, {
-    role: membership.role || userData.role || 'Member',
-    workspaceRoleTitle: membership.workspaceRoleTitle || membership.role || userData.workspaceRoleTitle || 'Member',
+    role: membership.role || userData.role || "Member",
+    workspaceRoleTitle:
+      membership.workspaceRoleTitle ||
+      membership.role ||
+      userData.workspaceRoleTitle ||
+      "Member",
     organizationId: targetOrganizationId,
-    organizationName: membership.organizationName || '',
-    invitedBy: membership.invitedBy || '',
+    organizationName: membership.organizationName || "",
+    invitedBy: membership.invitedBy || "",
     linkedOrganizationId: currentOrganizationId,
-    linkedOrganizationName: userData.organizationName || '',
-    linkedWorkspaceRoleTitle: userData.workspaceRoleTitle || 'Member',
-    linkedRole: userData.role || 'Member',
-    linkedInvitedBy: userData.invitedBy || '',
+    linkedOrganizationName: userData.organizationName || "",
+    linkedWorkspaceRoleTitle: userData.workspaceRoleTitle || "Member",
+    linkedRole: userData.role || "Member",
+    linkedInvitedBy: userData.invitedBy || "",
     updatedAt: serverTimestamp(),
   });
 }
 
-export async function removeWorkspaceMemberByAdmin({ adminUid, memberUid, organizationId }) {
+export async function removeWorkspaceMemberByAdmin({
+  adminUid,
+  memberUid,
+  organizationId,
+}) {
   if (!adminUid || !memberUid || !organizationId) {
-    throw new Error('Member removal details are incomplete.');
+    throw new Error("Member removal details are incomplete.");
   }
 
   if (adminUid === memberUid) {
-    throw new Error('Use Leave Workspace to remove yourself from this workspace.');
+    throw new Error(
+      "Use Leave Workspace to remove yourself from this workspace.",
+    );
   }
 
   if (memberUid === organizationId) {
-    throw new Error('Workspace owner cannot be removed.');
+    throw new Error("Workspace owner cannot be removed.");
   }
 
-  const adminRef = doc(db, 'users', adminUid);
-  const memberRef = doc(db, 'users', memberUid);
+  const adminRef = doc(db, "users", adminUid);
+  const memberRef = doc(db, "users", memberUid);
 
   const [adminSnapshot, memberSnapshot] = await Promise.all([
     getDoc(adminRef),
@@ -864,64 +958,72 @@ export async function removeWorkspaceMemberByAdmin({ adminUid, memberUid, organi
   ]);
 
   if (!adminSnapshot.exists() || !memberSnapshot.exists()) {
-    throw new Error('User profile was not found.');
+    throw new Error("User profile was not found.");
   }
 
   const adminData = adminSnapshot.data();
   const memberData = memberSnapshot.data();
 
   const adminOrganizationId = adminData.organizationId || adminUid;
-  const adminRole = (adminData.role || '').toLowerCase();
+  const adminRole = (adminData.role || "").toLowerCase();
 
-  if (adminOrganizationId !== organizationId || adminRole !== 'admin') {
-    throw new Error('Only workspace admins can remove members.');
+  if (adminOrganizationId !== organizationId || adminRole !== "admin") {
+    throw new Error("Only workspace admins can remove members.");
   }
 
   const memberOrganizationId = memberData.organizationId || memberUid;
   if (memberOrganizationId !== organizationId) {
-    throw new Error('Member is not in this workspace.');
+    throw new Error("Member is not in this workspace.");
   }
 
   const homeOrganizationId = memberData.homeOrganizationId || memberUid;
-  const homeOrganizationName = memberData.homeOrganizationName || memberData.name || 'My Workspace';
+  const homeOrganizationName =
+    memberData.homeOrganizationName || memberData.name || "My Workspace";
 
   await updateDoc(memberRef, {
-    role: 'Admin',
-    workspaceRoleTitle: 'Workspace Owner',
+    role: "Admin",
+    workspaceRoleTitle: "Workspace Owner",
     organizationId: homeOrganizationId,
     organizationName: homeOrganizationName,
-    invitedBy: '',
+    invitedBy: "",
     updatedAt: serverTimestamp(),
   });
 
   await createNotification({
     targetUserId: memberUid,
-    title: 'Removed from workspace',
-    message: 'You have been removed from a workspace and returned to your personal workspace.',
-    type: 'member_removed_workspace',
+    title: "Removed from workspace",
+    message:
+      "You have been removed from a workspace and returned to your personal workspace.",
+    type: "member_removed_workspace",
     actorUid: adminUid,
     organizationId,
     metadata: {
       memberUid,
-      memberEmail: normalizeEmail(memberData.email || ''),
+      memberEmail: normalizeEmail(memberData.email || ""),
     },
   });
 }
 
-export async function sendTeamMessage({ senderUid, senderName, senderEmail, organizationId, message }) {
+export async function sendTeamMessage({
+  senderUid,
+  senderName,
+  senderEmail,
+  organizationId,
+  message,
+}) {
   if (!organizationId || !senderUid || !message?.trim()) {
-    throw new Error('Message details are incomplete.');
+    throw new Error("Message details are incomplete.");
   }
 
   if (message.length > 5000) {
-    throw new Error('Message is too long (max 5000 characters).');
+    throw new Error("Message is too long (max 5000 characters).");
   }
 
-  return addDoc(collection(db, 'teamMessages'), {
+  return addDoc(collection(db, "teamMessages"), {
     organizationId,
     senderUid,
-    senderName: senderName || 'Unknown',
-    senderEmail: normalizeEmail(senderEmail || ''),
+    senderName: senderName || "Unknown",
+    senderEmail: normalizeEmail(senderEmail || ""),
     message: message.trim(),
     createdAt: serverTimestamp(),
   });
@@ -933,8 +1035,8 @@ export async function loadTeamMessagesOnce(organizationId) {
   }
 
   const messageQuery = query(
-    collection(db, 'teamMessages'),
-    where('organizationId', '==', organizationId)
+    collection(db, "teamMessages"),
+    where("organizationId", "==", organizationId),
   );
 
   const snapshot = await getDocs(messageQuery);
@@ -957,8 +1059,8 @@ export function subscribeToTeamMessages(organizationId, onMessagesUpdate) {
   }
 
   const messageQuery = query(
-    collection(db, 'teamMessages'),
-    where('organizationId', '==', organizationId)
+    collection(db, "teamMessages"),
+    where("organizationId", "==", organizationId),
   );
 
   const unsubscribe = onSnapshot(messageQuery, (snapshot) => {

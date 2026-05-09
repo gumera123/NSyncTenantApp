@@ -27,6 +27,18 @@ export default function WorkspaceInviteScannerScreen({ navigation }) {
   const [invitePreview, setInvitePreview] = useState(null);
 
   useEffect(() => {
+    navigation.setOptions({
+      headerShown: false,
+    });
+
+    return () => {
+      navigation.setOptions({
+        headerShown: true,
+      });
+    };
+  }, [navigation]);
+
+  useEffect(() => {
     if (!permission) {
       requestPermission().catch((error) => {
         console.log('Error requesting scanner permission:', error);
@@ -147,11 +159,6 @@ export default function WorkspaceInviteScannerScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
-        <Text style={styles.title}>Scan Workspace QR</Text>
-        <Text style={styles.subtitle}>
-          Point the camera at the owner&apos;s workspace QR code to load the invite.
-        </Text>
-
         <View style={styles.scannerFrame}>
           <CameraView
             barcodeScannerSettings={{ barcodeTypes: ['qr'] }}

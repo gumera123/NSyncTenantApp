@@ -26,6 +26,14 @@ export default function EditBoardScreen({ route, navigation }) {
   const [imageUri, setImageUri] = useState(null);
   const [uploading, setUploading] = useState(false);
 
+  const normalizeText = (value) => (value || '').trim();
+  const hasBoardChanges = Boolean(
+    normalizeText(title) !== normalizeText(board.title) ||
+    normalizeText(description) !== normalizeText(board.description) ||
+    imageUri !== null ||
+    (existingCoverUrl === '' && board.boardImageUrl)
+  );
+
   const pickImage = async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
@@ -91,9 +99,6 @@ export default function EditBoardScreen({ route, navigation }) {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>Edit Board</Text>
-        <Text style={styles.subtitle}>Update board details.</Text>
-
         <View style={styles.card}>
           <Text style={styles.label}>Board Title</Text>
           <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Board title" />
@@ -121,7 +126,14 @@ export default function EditBoardScreen({ route, navigation }) {
             </TouchableOpacity>
           ) : null}
 
-          <TouchableOpacity style={[styles.primaryButton, uploading && styles.buttonDisabled]} onPress={handleUpdateBoard} disabled={uploading}>
+          <TouchableOpacity
+            style={[
+              styles.primaryButton,
+              (uploading || !hasBoardChanges) && styles.buttonDisabled,
+            ]}
+            onPress={handleUpdateBoard}
+            disabled={uploading || !hasBoardChanges}
+          >
             {uploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Update Board</Text>}
           </TouchableOpacity>
         </View>

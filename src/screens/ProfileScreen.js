@@ -33,7 +33,7 @@ import {
 import ConfirmDialog from '../components/ui/confirm-dialog';
 import { AUTH_UI_PALETTE as PALETTE } from '../config/uiTokens';
 
-export default function ProfileScreen({ navigation }) {
+export default function ProfileScreen({ navigation, route }) {
   const [userData, setUserData] = useState(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -46,6 +46,7 @@ export default function ProfileScreen({ navigation }) {
   const [switchingWorkspaceId, setSwitchingWorkspaceId] = useState('');
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [isPhotoExpanded, setIsPhotoExpanded] = useState(false);
+  const [returnToMyProfileAfterEdit, setReturnToMyProfileAfterEdit] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -54,6 +55,7 @@ export default function ProfileScreen({ navigation }) {
     role: '',
     workspaceRoleTitle: '',
     address: '',
+    birthday: '',
     description: '',
   });
 
@@ -63,6 +65,18 @@ export default function ProfileScreen({ navigation }) {
   const isAdmin = (userData?.role || '').toLowerCase() === 'admin';
   const canLeaveWorkspace = organizationId && organizationId !== auth.currentUser?.uid;
   const canSwitchToPersonalWorkspace = organizationId && organizationId !== auth.currentUser?.uid;
+
+  const normalizeText = (value) => (value || '').trim();
+  const hasProfileChanges = Boolean(
+    userData && (
+      normalizeText(formData.name) !== normalizeText(userData.name) ||
+      normalizeText(formData.contactNumber) !== normalizeText(userData.contactNumber) ||
+      normalizeText(formData.address) !== normalizeText(userData.address) ||
+      normalizeText(formData.birthday) !== normalizeText(userData.birthday) ||
+      normalizeText(formData.organizationName) !== normalizeText(userData.organizationName) ||
+      (isAdmin && normalizeText(formData.workspaceRoleTitle) !== normalizeText(userData.workspaceRoleTitle))
+    )
+  );
 
   const workspaceMemberships = (() => {
     const memberships = Array.isArray(userData?.workspaceMemberships)
@@ -132,6 +146,7 @@ export default function ProfileScreen({ navigation }) {
           role: data.role || '',
           workspaceRoleTitle: data.workspaceRoleTitle || '',
           address: data.address || '',
+          birthday: data.birthday || '',
           description: data.description || '',
         }));
       }
@@ -151,6 +166,18 @@ export default function ProfileScreen({ navigation }) {
       fetchUserData();
     }, [fetchUserData])
   );
+
+  useEffect(() => {
+    if (route?.params?.startEdit) {
+      setReturnToMyProfileAfterEdit(Boolean(route?.params?.returnToMyProfile));
+      setIsEditMode(true);
+      navigation.setParams({
+        startEdit: undefined,
+        returnToMyProfile: undefined,
+        isEditingProfile: true,
+      });
+    }
+  }, [navigation, route?.params?.returnToMyProfile, route?.params?.startEdit]);
 
   const pickImage = async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -222,6 +249,7 @@ export default function ProfileScreen({ navigation }) {
         name: formData.name.trim(),
         contactNumber: contactNumberValue,
         address: formData.address.trim(),
+        birthday: formData.birthday.trim(),
         description: formData.description.trim(),
         updatedAt: serverTimestamp(),
         ...(isAdmin
@@ -236,10 +264,17 @@ export default function ProfileScreen({ navigation }) {
         ...previous,
         ...formData,
         contactNumber: contactNumberValue,
+        birthday: formData.birthday.trim(),
       }));
 
+      const shouldReturnToMyProfile = returnToMyProfileAfterEdit;
       setIsEditMode(false);
+      setReturnToMyProfileAfterEdit(false);
       setContactError('');
+      navigation.setParams({ isEditingProfile: undefined });
+      if (shouldReturnToMyProfile) {
+        navigation.navigate('MyProfile');
+      }
       Alert.alert('Success', 'Profile updated successfully.');
     } catch (error) {
       console.log('Error saving profile:', error);
@@ -258,13 +293,20 @@ export default function ProfileScreen({ navigation }) {
         role: userData.role || '',
         workspaceRoleTitle: userData.workspaceRoleTitle || '',
         address: userData.address || '',
+        birthday: userData.birthday || '',
         description: userData.description || '',
       });
     }
 
+    const shouldReturnToMyProfile = returnToMyProfileAfterEdit;
     setIsEditMode(false);
+    setReturnToMyProfileAfterEdit(false);
     setImageUri(null);
     setContactError('');
+    navigation.setParams({ isEditingProfile: undefined });
+    if (shouldReturnToMyProfile) {
+      navigation.navigate('MyProfile');
+    }
   };
 
   const handleLogout = () => {
@@ -429,6 +471,16 @@ export default function ProfileScreen({ navigation }) {
                 multiline
               />
 
+              <Text style={styles.label}>Birthday</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex. January 1, 2000"
+                placeholderTextColor="#94a3b8"
+                value={formData.birthday}
+                onChangeText={(text) => setFormData({ ...formData, birthday: text })}
+                editable={!saving}
+              />
+
               <Text style={styles.label}>Organization</Text>
               <TextInput
                 style={isAdmin ? styles.input : styles.readOnly}
@@ -460,9 +512,13 @@ export default function ProfileScreen({ navigation }) {
 
               <View style={styles.rowButtons}>
                 <TouchableOpacity
-                  style={[styles.primaryButton, styles.flexButton]}
+                  style={[
+                    styles.primaryButton,
+                    styles.flexButton,
+                    (!hasProfileChanges || saving) && styles.buttonDisabled,
+                  ]}
                   onPress={handleSaveProfile}
-                  disabled={saving}
+                  disabled={saving || !hasProfileChanges}
                 >
                   <Text style={styles.primaryButtonText}>{saving ? 'Saving...' : 'Save'}</Text>
                 </TouchableOpacity>
@@ -482,10 +538,10 @@ export default function ProfileScreen({ navigation }) {
   const roleLabel = userData?.workspaceRoleTitle || userData?.role || 'Member';
   const compactEmail = userEmail.length > 18 ? `${userEmail.slice(0, 16)}...` : userEmail;
 
-  const renderSettingsRow = ({ icon, title, value, onPress }) => (
+  const renderSettingsRow = ({ icon, title, value, onPress, isFirst = false }) => (
     <TouchableOpacity
       key={title}
-      style={styles.settingsRow}
+      style={[styles.settingsRow, isFirst && styles.settingsRowFirst]}
       activeOpacity={0.86}
       onPress={onPress}
       disabled={!onPress}
@@ -527,7 +583,14 @@ export default function ProfileScreen({ navigation }) {
               </TouchableOpacity>
             </View>
             <Text style={styles.settingsProfileName}>{profileName}</Text>
-            <TouchableOpacity activeOpacity={0.8} onPress={() => setIsEditMode(true)}>
+            <TouchableOpacity
+              style={styles.settingsViewProfileTouch}
+              activeOpacity={0.78}
+              onPress={() => navigation.navigate('MyProfile')}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="View profile"
+            >
               <Text style={styles.settingsViewProfile}>View profile</Text>
             </TouchableOpacity>
             <Text style={styles.settingsProfileRole}>{roleLabel}</Text>
@@ -584,11 +647,11 @@ export default function ProfileScreen({ navigation }) {
           </TouchableOpacity>
 
           <View style={styles.settingsCard}>
-            <Text style={styles.settingsCardTitle}>Settings</Text>
             {renderSettingsRow({
               icon: 'person-circle-outline',
               title: 'Account settings',
               value: compactEmail,
+              isFirst: true,
             })}
             {renderSettingsRow({
               icon: 'notifications-outline',
@@ -607,24 +670,6 @@ export default function ProfileScreen({ navigation }) {
           </View>
 
           <View style={styles.card}>
-            {userData?.contactNumber ? (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Phone</Text>
-                <Text style={styles.infoValue}>{userData.contactNumber}</Text>
-              </View>
-            ) : null}
-
-            {userData?.address ? (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Address</Text>
-                <Text style={styles.infoValue}>{userData.address}</Text>
-              </View>
-            ) : null}
-
-            <TouchableOpacity style={styles.primaryButton} onPress={() => setIsEditMode(true)}>
-              <Text style={styles.primaryButtonText}>Edit Profile</Text>
-            </TouchableOpacity>
-
             {workspaceMemberships.length > 0 ? (
               <View style={styles.workspaceSwitcherCard}>
                 <Text style={styles.workspaceSwitcherTitle}>Workspace Switcher</Text>
@@ -789,9 +834,18 @@ const styles = StyleSheet.create({
   },
   settingsViewProfile: {
     marginTop: 4,
-    color: PALETTE.black,
+    color: '#2563eb',
     fontSize: 13,
     fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
+  settingsViewProfileTouch: {
+    marginTop: 4,
+    alignSelf: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   settingsProfileRole: {
     marginTop: 4,
@@ -807,7 +861,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
-    marginBottom: 54,
+    marginBottom: 16,
     shadowColor: '#000000',
     shadowOpacity: 0.03,
     shadowRadius: 8,
@@ -839,14 +893,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     overflow: 'hidden',
   },
-  settingsCardTitle: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-    color: PALETTE.black,
-    fontWeight: '800',
-    fontSize: 14,
-  },
   settingsRow: {
     minHeight: 56,
     flexDirection: 'row',
@@ -854,6 +900,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderTopWidth: 1,
     borderTopColor: '#edf1f5',
+  },
+  settingsRowFirst: {
+    borderTopWidth: 0,
   },
   settingsIconWrap: {
     width: 26,

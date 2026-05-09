@@ -1,12 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -22,13 +22,29 @@ import {
   updateWorkspaceMemberRoleTitle,
 } from '../utils/workspaceInvite';
 
+const getSpecificRoleTitle = (member) => {
+  const workspaceRoleTitle = (member?.workspaceRoleTitle || '').trim();
+  const accountRole = (member?.role || '').trim();
+
+  if (!workspaceRoleTitle) {
+    return '';
+  }
+
+  if (workspaceRoleTitle.toLowerCase() === 'member' && accountRole.toLowerCase() === 'member') {
+    return '';
+  }
+
+  return workspaceRoleTitle;
+};
+
+const getMemberPhotoUrl = (member) =>
+  member?.organizationLogoUrl || member?.profilePictureUrl || member?.photoURL || member?.photoUrl || '';
+
 export default function MyTeamScreen() {
   const [loading, setLoading] = useState(true);
   const [membersLoading, setMembersLoading] = useState(true);
   const [userData, setUserData] = useState(null);
   const [workspaceMembers, setWorkspaceMembers] = useState([]);
-  const [memberRoleDrafts, setMemberRoleDrafts] = useState({});
-  const [updatingMemberId, setUpdatingMemberId] = useState('');
   const [removingMemberId, setRemovingMemberId] = useState('');
   const [confirmDialog, setConfirmDialog] = useState(null);
 
@@ -82,59 +98,11 @@ export default function MyTeamScreen() {
       });
 
       setWorkspaceMembers(sortedMembers);
-      setMemberRoleDrafts((currentDrafts) => {
-        const nextDrafts = { ...currentDrafts };
-        const currentMemberIds = new Set(sortedMembers.map((member) => member.id));
-
-        sortedMembers.forEach((member) => {
-          if (typeof nextDrafts[member.id] !== 'string') {
-            nextDrafts[member.id] = member.workspaceRoleTitle || member.role || 'Member';
-          }
-        });
-
-        Object.keys(nextDrafts).forEach((memberId) => {
-          if (!currentMemberIds.has(memberId)) {
-            delete nextDrafts[memberId];
-          }
-        });
-
-        return nextDrafts;
-      });
       setMembersLoading(false);
     });
 
     return unsubscribe;
   }, [organizationId]);
-
-  const handleAssignMemberRole = useCallback(async (memberUid) => {
-    if (!organizationId || !isAdmin) {
-      Alert.alert('Admin Only', 'Only admins can update workspace member roles.');
-      return;
-    }
-
-    const member = workspaceMembers.find((currentMember) => currentMember.id === memberUid);
-    const defaultRoleTitle = member?.workspaceRoleTitle || member?.role || 'Member';
-    const roleTitle = (memberRoleDrafts[memberUid] ?? defaultRoleTitle).trim();
-
-    if (!roleTitle) {
-      Alert.alert('Validation Error', 'Role title cannot be empty.');
-      return;
-    }
-
-    try {
-      setUpdatingMemberId(memberUid);
-      await updateWorkspaceMemberRoleTitle({
-        memberUid,
-        organizationId,
-        workspaceRoleTitle: roleTitle,
-      });
-    } catch (error) {
-      console.log('Error updating workspace role:', error);
-      Alert.alert('Error', error.message || 'Failed to update member role.');
-    } finally {
-      setUpdatingMemberId('');
-    }
-  }, [organizationId, isAdmin, memberRoleDrafts, workspaceMembers]);
 
   const handleRemoveMember = useCallback((member) => {
     if (!auth.currentUser?.uid || !organizationId || !isAdmin) {
@@ -183,7 +151,7 @@ export default function MyTeamScreen() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>My Team</Text>
+        {/* Title removed per UX request */}
 
         {membersLoading ? (
           <View style={styles.centerCard}>
@@ -200,68 +168,45 @@ export default function MyTeamScreen() {
 
         {workspaceMembers.map((member) => {
           const memberDisplayName = member.name || member.email || 'Unnamed Member';
-          const defaultRoleTitle = member.workspaceRoleTitle || member.role || 'Member';
-          const roleDraft = memberRoleDrafts[member.id] ?? defaultRoleTitle;
           const isCurrentUser = member.id === auth.currentUser?.uid;
+          const memberPhotoUrl = getMemberPhotoUrl(member);
 
           return (
             <View key={member.id} style={styles.memberCard}>
               <View style={styles.memberHeader}>
-                <View style={styles.memberAvatar}>
-                  <Text style={styles.memberAvatarText}>
-                    {memberDisplayName.charAt(0).toUpperCase()}
-                  </Text>
-                </View>
+                {memberPhotoUrl ? (
+                  <Image source={{ uri: memberPhotoUrl }} style={styles.memberAvatarImage} />
+                ) : (
+                  <View style={styles.memberAvatar}>
+                    <Text style={styles.memberAvatarText}>
+                      {memberDisplayName.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
                 <View style={styles.memberInfo}>
                   <Text style={styles.memberName}>
                     {memberDisplayName}
                     {isCurrentUser ? ' (You)' : ''}
                   </Text>
                   <Text style={styles.memberEmail}>{member.email || 'No email'}</Text>
-                  <Text style={styles.memberRole}>{defaultRoleTitle}</Text>
+                  <Text style={[styles.memberRole, !getSpecificRoleTitle(member) && styles.memberRoleEmpty]}>
+                    {getSpecificRoleTitle(member) || 'Member'}
+                  </Text>
                 </View>
 
-                {isAdmin && !isCurrentUser ? (
-                  <TouchableOpacity
-                    style={[styles.removeButton, removingMemberId === member.id && styles.buttonDisabled]}
-                    onPress={() => handleRemoveMember(member)}
-                    disabled={removingMemberId === member.id}
-                  >
-                    <Ionicons name="trash-outline" size={17} color="#dc2626" />
-                  </TouchableOpacity>
-                ) : null}
+                <View style={styles.rightActions}>
+                  {isAdmin && !isCurrentUser ? (
+                    <TouchableOpacity
+                      style={[styles.removeButton, removingMemberId === member.id && styles.buttonDisabled]}
+                      onPress={() => handleRemoveMember(member)}
+                      disabled={removingMemberId === member.id}
+                    >
+                      <Ionicons name="trash-outline" size={17} color="#dc2626" />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
               </View>
 
-              {isAdmin ? (
-                <View style={styles.roleEditor}>
-                  <TextInput
-                    style={styles.roleInput}
-                    placeholder="Type role title"
-                    placeholderTextColor="#94a3b8"
-                    value={roleDraft}
-                    onChangeText={(text) =>
-                      setMemberRoleDrafts((currentDrafts) => ({
-                        ...currentDrafts,
-                        [member.id]: text,
-                      }))
-                    }
-                    editable={updatingMemberId !== member.id && removingMemberId !== member.id}
-                  />
-                  <TouchableOpacity
-                    style={[
-                      styles.saveButton,
-                      (updatingMemberId === member.id || !roleDraft.trim() || removingMemberId === member.id) &&
-                        styles.buttonDisabled,
-                    ]}
-                    onPress={() => handleAssignMemberRole(member.id)}
-                    disabled={updatingMemberId === member.id || !roleDraft.trim() || removingMemberId === member.id}
-                  >
-                    <Text style={styles.saveButtonText}>
-                      {updatingMemberId === member.id ? 'Saving...' : 'Save'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              ) : null}
             </View>
           );
         })}
@@ -341,6 +286,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 12,
   },
+  memberAvatarImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+    backgroundColor: '#e2e8f0',
+  },
   memberAvatarText: {
     color: '#0f172a',
     fontSize: 18,
@@ -365,6 +317,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 3,
   },
+  memberRoleEmpty: {
+    color: '#94a3b8',
+  },
+  rightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
   removeButton: {
     width: 38,
     height: 38,
@@ -374,35 +334,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fef2f2',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  roleEditor: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 12,
-  },
-  roleInput: {
-    flex: 1,
-    height: 42,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: PALETTE.border,
-    backgroundColor: PALETTE.softWhite,
-    paddingHorizontal: 10,
-    color: PALETTE.black,
-  },
-  saveButton: {
-    height: 42,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    backgroundColor: PALETTE.black,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  saveButtonText: {
-    color: PALETTE.white,
-    fontWeight: '800',
-    fontSize: 12,
   },
   buttonDisabled: {
     opacity: 0.65,

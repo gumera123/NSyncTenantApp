@@ -189,12 +189,7 @@ export default function TasksScreen({ route, navigation }) {
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      title: board.title,
-      headerRight: () => (
-        <TouchableOpacity onPress={() => navigation.navigate('AddTask', { board })}>
-          <Text style={styles.headerButton}>+ Task</Text>
-        </TouchableOpacity>
-      ),
+      title: '',
     });
   }, [navigation, board]);
 
@@ -362,11 +357,6 @@ export default function TasksScreen({ route, navigation }) {
         contentContainerStyle={styles.content}
         scrollEnabled={!isDragging}
       >
-        <View style={styles.titleCard}>
-          <Text style={styles.pageTitle}>{board.title}</Text>
-          <Text style={styles.pageSubtitle}>Drag task cards into To Do, In Progress, or Done.</Text>
-        </View>
-
         {updatingTaskId ? (
           <View style={styles.infoBanner}>
             <Text style={styles.infoBannerText}>Saving task status...</Text>
@@ -375,14 +365,27 @@ export default function TasksScreen({ route, navigation }) {
 
         {tasks.length === 0 ? (
           <View style={styles.emptyMain}>
-            <Text style={styles.emptyMainTitle}>No tasks yet</Text>
-            <Text style={styles.emptyMainSubtitle}>Tap + Task to create your first task.</Text>
+            <TouchableOpacity
+              style={styles.addTaskButton}
+              onPress={() => navigation.navigate('AddTask', { board })}
+            >
+              <Text style={styles.addTaskButtonText}>New Task</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <>
             {renderSection('To Do', todoTasks)}
             {renderSection('In Progress', inProgressTasks)}
             {renderSection('Done', doneTasks)}
+
+            <View style={{ marginTop: 16 }}>
+              <TouchableOpacity
+                style={styles.addTaskButton}
+                onPress={() => navigation.navigate('AddTask', { board })}
+              >
+                <Text style={styles.addTaskButtonText}>New Task</Text>
+              </TouchableOpacity>
+            </View>
           </>
         )}
       </ScrollView>
@@ -407,28 +410,7 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 24,
   },
-  headerButton: {
-    color: '#111827',
-    fontWeight: '700',
-    fontSize: 15,
-  },
-  titleCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 14,
-    marginBottom: 14,
-  },
-  pageTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  pageSubtitle: {
-    marginTop: 4,
-    color: '#64748b',
-  },
+
   infoBanner: {
     backgroundColor: '#eff6ff',
     borderWidth: 1,
@@ -526,17 +508,24 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   emptyMain: {
+    flex: 1,
     alignItems: 'center',
-    paddingTop: 16,
+    justifyContent: 'center',
+    minHeight: 400,
+    paddingHorizontal: 16,
   },
-  emptyMainTitle: {
+  addTaskButton: {
+    width: '100%',
+    backgroundColor: '#10b981',
+    borderRadius: 12,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addTaskButtonText: {
+    color: '#ffffff',
     fontSize: 16,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  emptyMainSubtitle: {
-    marginTop: 6,
-    color: '#64748b',
-    textAlign: 'center',
+    fontWeight: '800',
   },
 });

@@ -542,16 +542,7 @@ export default function ReportsScreen() {
             })}
           </ScrollView>
 
-          <Text style={styles.dateRangeHint}>
-            Date range: prepared for Phase 2 ({dateRange.startDate || 'start'} - {dateRange.endDate || 'end'})
-          </Text>
-          <TouchableOpacity
-            style={styles.dateRangeResetButton}
-            onPress={() => setDateRange({ startDate: null, endDate: null })}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.dateRangeResetText}>Reset Date Range</Text>
-          </TouchableOpacity>
+          {/* Date range UI (Phase 2) removed */}
         </View>
 
         <View style={styles.grid}>
@@ -800,21 +791,6 @@ const styles = StyleSheet.create({
     color: '#64748b',
     fontSize: 12,
     fontWeight: '500',
-  },
-  dateRangeResetButton: {
-    alignSelf: 'flex-start',
-    marginTop: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#86efac',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: '#f0fdf4',
-  },
-  dateRangeResetText: {
-    color: '#166534',
-    fontWeight: '600',
-    fontSize: 12,
   },
   rowItem: {
     marginBottom: 10,

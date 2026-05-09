@@ -5,12 +5,12 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDocFromServer, onSnapshot } from "firebase/firestore";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { auth, db } from "../../firebaseConfig";
 
@@ -20,20 +20,21 @@ import BoardsScreen from "../screens/BoardsScreen";
 import EditBoardScreen from "../screens/EditBoardScreen";
 import EditTaskScreen from "../screens/EditTaskScreen";
 import LoginScreen from "../screens/LoginScreen";
+import MyTeamScreen from "../screens/MyTeamScreen";
+import MyProfileScreen from "../screens/MyProfileScreen";
 import NotificationsScreen from "../screens/NotificationsScreen";
 import ProfileScreen from "../screens/ProfileScreen";
-import MyTeamScreen from "../screens/MyTeamScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 import ReportsScreen from "../screens/ReportsScreen";
 import TasksScreen from "../screens/TasksScreen";
 import WorkspaceInviteScannerScreen from "../screens/WorkspaceInviteScannerScreen";
 import {
-    getInactiveAccountMessage,
-    isAccountDeactivated,
+  getInactiveAccountMessage,
+  isAccountDeactivated,
 } from "../utils/accountStatus";
 import {
-    loadUserNotifications,
-    syncWorkspaceAccessForUser,
+  loadUserNotifications,
+  syncWorkspaceAccessForUser,
 } from "../utils/workspaceInvite";
 
 const ForgotPasswordScreen = require("../screens/ForgotPasswordScreen").default;
@@ -130,6 +131,11 @@ function ProfileStack() {
       <Stack.Screen
         name="Profile"
         component={ProfileScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="MyProfile"
+        component={MyProfileScreen}
         options={{ headerShown: false }}
       />
       <Stack.Screen
@@ -236,11 +242,28 @@ function MainTabsWithListener() {
   const [activeRouteName, setActiveRouteName] = useState("Boards");
   const [unreadCount, setUnreadCount] = useState(0);
   const hiddenTabRoutes = useMemo(
-    () => ["Tasks", "AddTask", "EditTask", "EditBoard", "TeamChat"],
+    () => [
+      "Tasks",
+      "AddTask",
+      "EditTask",
+      "EditBoard",
+      "WorkspaceInviteScanner",
+      "TeamChat",
+      "MyTeam",
+      "MyProfile",
+      "EditProfile",
+    ],
     [],
   );
   const hiddenAddBoardRoutes = useMemo(
-    () => ["Reports", "Notifications", "Profile"],
+    () => [
+      "Reports",
+      "Notifications",
+      "WorkspaceInviteScanner",
+      "MyTeam",
+      "MyProfile",
+      "EditProfile",
+    ],
     [],
   );
 
@@ -362,13 +385,17 @@ function MainTabsWithListener() {
         component={ProfileStack}
         listeners={({ route }) => ({
           state: () => {
-            const nestedRouteName =
-              route.state?.routes?.[route.state.index ?? 0]?.name ?? "Profile";
+            const activeNestedRoute = route.state?.routes?.[route.state.index ?? 0];
+            const nestedRouteName = activeNestedRoute?.params?.isEditingProfile
+              ? "EditProfile"
+              : (activeNestedRoute?.name ?? "Profile");
             setActiveRouteName(nestedRouteName);
           },
           focus: () => {
-            const nestedRouteName =
-              route.state?.routes?.[route.state.index ?? 0]?.name ?? "Profile";
+            const activeNestedRoute = route.state?.routes?.[route.state.index ?? 0];
+            const nestedRouteName = activeNestedRoute?.params?.isEditingProfile
+              ? "EditProfile"
+              : (activeNestedRoute?.name ?? "Profile");
             setActiveRouteName(nestedRouteName);
             refreshUnreadNotifications();
           },
