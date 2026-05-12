@@ -13,6 +13,8 @@ NSync is a branded standalone React Native app for tenant workspace management.
 - <img width="250" alt="Fir" src="https://github.com/user-attachments/assets/bc5ef7ee-30a8-4d45-9c92-134ab4ccd17f" />
 - <img width="250" alt="sec" src="https://github.com/user-attachments/assets/ba4f9aa2-daba-4381-b2ef-4a5b43656bcc" />
 - <img width="250" alt="thi" src="https://github.com/user-attachments/assets/389d5e00-259c-40d0-a3b7-8eff4507cf7c" />
+- <img width="250" alt="admin" src="https://github.com/user-attachments/assets/79c02a1e-9e6f-477e-aa71-fbae305657e8" />
+
 
 
 ## Development
