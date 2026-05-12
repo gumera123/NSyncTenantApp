@@ -8,6 +8,13 @@ NSync is a branded standalone React Native app for tenant workspace management.
 - Core visual identity: dark ink + green accent on the S in NSync
 - Deep link scheme: nsync
 
+## Screenshot
+
+- <img width="313" height="327" alt="Fir" src="https://github.com/user-attachments/assets/bc5ef7ee-30a8-4d45-9c92-134ab4ccd17f" />
+- <img width="908" height="2048" alt="sec" src="https://github.com/user-attachments/assets/ba4f9aa2-daba-4381-b2ef-4a5b43656bcc" />
+- <img width="908" height="2048" alt="thi" src="https://github.com/user-attachments/assets/389d5e00-259c-40d0-a3b7-8eff4507cf7c" />
+
+
 ## Development
 
 1. Install dependencies:
